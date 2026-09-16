@@ -1,0 +1,456 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Quelldateien">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Headerdateien">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Ressourcendateien">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Headerdateien\Math">
+      <UniqueIdentifier>{b190038a-0e44-4300-8212-94deca48af91}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Bounding">
+      <UniqueIdentifier>{8df18763-7f80-48a1-bf85-04cc25d292af}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Global">
+      <UniqueIdentifier>{544ad948-e2e1-4645-a4ed-8488972938d7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Geometry">
+      <UniqueIdentifier>{f626a643-e063-40ab-b3bd-2d2863380046}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Scene">
+      <UniqueIdentifier>{22639cc8-574a-4a73-8bf2-37ff127fe97e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Controler">
+      <UniqueIdentifier>{de27430e-1b29-4530-b72e-89be494341f1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Io">
+      <UniqueIdentifier>{b1838584-9167-4c00-b926-85ac35e655c1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer">
+      <UniqueIdentifier>{50b1abd9-0bc0-4ea2-8764-49066910057f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\Buffers">
+      <UniqueIdentifier>{574472db-5938-418e-a083-230fdc949cde}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Renderer">
+      <UniqueIdentifier>{1c8052b2-5e96-41df-87b7-39222e45ab2f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\gfx2d">
+      <UniqueIdentifier>{e2141cd0-80a8-4570-abb2-2357c133e56b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Renderer\gfx2d">
+      <UniqueIdentifier>{81aa858e-5eae-47f2-8755-12ff42a63f8e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Spatial">
+      <UniqueIdentifier>{3e7f878f-1984-44fc-965b-ca777f2a7eab}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\Objects">
+      <UniqueIdentifier>{0d75c8ee-48ec-460a-bf83-161f2139bf4c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Tools">
+      <UniqueIdentifier>{a3dd9cee-8ebe-4dc8-b2de-073935ccf8a9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\Occlusion">
+      <UniqueIdentifier>{073f97de-b0b2-4dcf-99ed-f9ee9dcf86b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\PostFx">
+      <UniqueIdentifier>{3247e020-b284-424c-9f93-490cadc7b4d9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Resource">
+      <UniqueIdentifier>{69cb2e93-2046-4d69-a239-73b4e0b4c643}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Tools">
+      <UniqueIdentifier>{30be080b-84ad-4422-b3fb-aa7752e1b3a3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\gfx">
+      <UniqueIdentifier>{42c5ec4b-6478-41ab-8bdb-2179acfbf3b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Renderer\gfx">
+      <UniqueIdentifier>{3454a8a7-79bb-485b-9c06-27956bc9abad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Resource">
+      <UniqueIdentifier>{fbcb4b29-9801-4084-8218-06b1d29d19eb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Renderer\Rasterizer">
+      <UniqueIdentifier>{d082d49f-e79b-495d-a250-f088d79682d4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\io">
+      <UniqueIdentifier>{2c80959f-d665-45f0-a58f-1ff8d1905ff7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\io\VFS">
+      <UniqueIdentifier>{f3c6ed52-0713-4acb-ae66-1660e668c3cc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Io\VFS">
+      <UniqueIdentifier>{741ece6e-390c-4e68-8579-fa789ff3fd13}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Io\VFS\Dir">
+      <UniqueIdentifier>{176f9a0c-870d-487c-a367-8b3225000295}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Io\VFS\ZIP">
+      <UniqueIdentifier>{34c3b97f-cd53-4392-a8b9-231b5f2de972}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\io\VFS\Dir">
+      <UniqueIdentifier>{d856ac00-468e-4c3b-b959-028118a4a3cc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\io\VFS\ZIP">
+      <UniqueIdentifier>{5d1ec6b6-a992-43eb-9f89-469277182cca}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headerdateien\Map">
+      <UniqueIdentifier>{6247fcac-834b-440d-8d46-f0bc548fa854}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\Map">
+      <UniqueIdentifier>{61e809cf-2acb-4f8d-a557-4d421c774163}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Matrix.h">
+      <Filter>Headerdateien\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="MathUtils.h">
+      <Filter>Headerdateien\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="Quaternion.h">
+      <Filter>Headerdateien\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="AABBox.h">
+      <Filter>Headerdateien\Bounding</Filter>
+    </ClInclude>
+    <ClInclude Include="Bounding.h">
+      <Filter>Headerdateien\Bounding</Filter>
+    </ClInclude>
+    <ClInclude Include="BoundingSphere.h">
+      <Filter>Headerdateien\Bounding</Filter>
+    </ClInclude>
+    <ClInclude Include="RayPlaneLine.h">
+      <Filter>Headerdateien\Math</Filter>
+    </ClInclude>
+    <ClInclude Include="framework.h">
+      <Filter>Headerdateien\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="Global.h">
+      <Filter>Headerdateien\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>Headerdateien\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="Vertex.h">
+      <Filter>Headerdateien\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="Primitive.h">
+      <Filter>Headerdateien\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera.h">
+      <Filter>Headerdateien\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="CameraController.h">
+      <Filter>Headerdateien\Controler</Filter>
+    </ClInclude>
+    <ClInclude Include="StdOutputBypass.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="PixelBuffer.h">
+      <Filter>Headerdateien\Renderer\Buffers</Filter>
+    </ClInclude>
+    <ClInclude Include="HierarchicalZBuffer.h">
+      <Filter>Headerdateien\Renderer\Buffers</Filter>
+    </ClInclude>
+    <ClInclude Include="ZBuffer.h">
+      <Filter>Headerdateien\Renderer\Buffers</Filter>
+    </ClInclude>
+    <ClInclude Include="NeonGhostCore.h">
+      <Filter>Headerdateien\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="Canvas2D.h">
+      <Filter>Headerdateien\Renderer\gfx2d</Filter>
+    </ClInclude>
+    <ClInclude Include="AABBox2D.h">
+      <Filter>Headerdateien\Bounding</Filter>
+    </ClInclude>
+    <ClInclude Include="BoundingCircle2D.h">
+      <Filter>Headerdateien\Bounding</Filter>
+    </ClInclude>
+    <ClInclude Include="Sprite.h">
+      <Filter>Headerdateien\Renderer\gfx2d</Filter>
+    </ClInclude>
+    <ClInclude Include="Blend.h">
+      <Filter>Headerdateien\Renderer\gfx2d</Filter>
+    </ClInclude>
+    <ClInclude Include="Object2D.h">
+      <Filter>Headerdateien\Renderer\Objects</Filter>
+    </ClInclude>
+    <ClInclude Include="Object3D.h">
+      <Filter>Headerdateien\Renderer\Objects</Filter>
+    </ClInclude>
+    <ClInclude Include="KDTree2D.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="KDTree3D.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Visualize.h">
+      <Filter>Headerdateien\Renderer\gfx2d</Filter>
+    </ClInclude>
+    <ClInclude Include="Logo800x600.h">
+      <Filter>Headerdateien\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="FPSCounter.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="HZBOcclusion.h">
+      <Filter>Headerdateien\Renderer\Occlusion</Filter>
+    </ClInclude>
+    <ClInclude Include="postfx.h">
+      <Filter>Headerdateien\Renderer\PostFx</Filter>
+    </ClInclude>
+    <ClInclude Include="fxlib.h">
+      <Filter>Headerdateien\Renderer\PostFx</Filter>
+    </ClInclude>
+    <ClInclude Include="tinyxml2.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="ResourceManager.h">
+      <Filter>Headerdateien\Resource</Filter>
+    </ClInclude>
+    <ClInclude Include="CRC.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="Rasterizer3dBase.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="Rasterizer3D.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="Image.h">
+      <Filter>Headerdateien\Renderer\gfx</Filter>
+    </ClInclude>
+    <ClInclude Include="Lock.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="ScreenVertex.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="Frustum.h">
+      <Filter>Headerdateien\Renderer\Occlusion</Filter>
+    </ClInclude>
+    <ClInclude Include="CameraFrustum.h">
+      <Filter>Headerdateien\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderPipeline.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="Clipping.h">
+      <Filter>Headerdateien\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshOld.h">
+      <Filter>Headerdateien\Renderer\Objects</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshGenerator.h">
+      <Filter>Headerdateien\Renderer\Objects</Filter>
+    </ClInclude>
+    <ClInclude Include="Maskedocclusionbuffer.h">
+      <Filter>Headerdateien\Renderer\Occlusion</Filter>
+    </ClInclude>
+    <ClInclude Include="HeightMapGenerator.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="Mesh.h">
+      <Filter>Headerdateien\Renderer\Objects</Filter>
+    </ClInclude>
+    <ClInclude Include="Tilerasterizer.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="OCTree.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture.h">
+      <Filter>Headerdateien\Renderer\gfx</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSFile.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSFileStream.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSMountPoint.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSStream.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VirtualFileSystem.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSFileManager.h">
+      <Filter>Headerdateien\Io\VFS</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSDirectoryDrive.h">
+      <Filter>Headerdateien\Io\VFS\Dir</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSDirectoryFile.h">
+      <Filter>Headerdateien\Io\VFS\Dir</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSDrive.h">
+      <Filter>Headerdateien\Io\VFS\Dir</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSZipDrive.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSZipFile.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="VFSZipStream.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz_export.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz_common.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz_tdef.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz_tinfl.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="miniz_zip.h">
+      <Filter>Headerdateien\Io\VFS\ZIP</Filter>
+    </ClInclude>
+    <ClInclude Include="BspBuilder.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Waveformobj.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="tiny_obj_loader.h">
+      <Filter>Headerdateien\Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="Bsprenderer.h">
+      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
+    </ClInclude>
+    <ClInclude Include="Portalgen.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="SkyBoxGen.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Floodfill.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Parser.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+    <ClInclude Include="WorldSpawn.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+    <ClInclude Include="Brush.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+    <ClInclude Include="HalfLife.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+    <ClInclude Include="Map.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+    <ClInclude Include="CSGTree.h">
+      <Filter>Headerdateien\Map</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="NeonGhostCore.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="Canvas2D.cpp">
+      <Filter>Quelldateien\Renderer\gfx2d</Filter>
+    </ClCompile>
+    <ClCompile Include="Logo800x600.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="tinyxml2.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="ResourceManager.cpp">
+      <Filter>Quelldateien\Resource</Filter>
+    </ClCompile>
+    <ClCompile Include="CRC.cpp">
+      <Filter>Quelldateien\Tools</Filter>
+    </ClCompile>
+    <ClCompile Include="Sprite.cpp">
+      <Filter>Quelldateien\Renderer\gfx2d</Filter>
+    </ClCompile>
+    <ClCompile Include="Image.cpp">
+      <Filter>Quelldateien\Renderer\gfx</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture.cpp">
+      <Filter>Quelldateien\Renderer\gfx</Filter>
+    </ClCompile>
+    <ClCompile Include="StdOutputBypass.cpp">
+      <Filter>Quelldateien\io</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSFileStream.cpp">
+      <Filter>Quelldateien\io\VFS</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSVirtualFileSystem.cpp">
+      <Filter>Quelldateien\io\VFS</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSFileManager.cpp">
+      <Filter>Quelldateien\io\VFS</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSDirectoryDrive.cpp">
+      <Filter>Quelldateien\io\VFS\Dir</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSDirectoryFile.cpp">
+      <Filter>Quelldateien\io\VFS\Dir</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSZipStream.cpp">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSZipDrive.cpp">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="miniz.c">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="miniz_tdef.c">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="miniz_tinfl.c">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="miniz_zip.c">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="Waveformobj.cpp">
+      <Filter>Quelldateien\Tools</Filter>
+    </ClCompile>
+    <ClCompile Include="tiny_obj_loader.cc">
+      <Filter>Quelldateien\Tools</Filter>
+    </ClCompile>
+    <ClCompile Include="VFSZipFile.cpp">
+      <Filter>Quelldateien\io\VFS\ZIP</Filter>
+    </ClCompile>
+    <ClCompile Include="Parser.cpp">
+      <Filter>Quelldateien\Map</Filter>
+    </ClCompile>
+    <ClCompile Include="HalfLife.cpp">
+      <Filter>Quelldateien\Map</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

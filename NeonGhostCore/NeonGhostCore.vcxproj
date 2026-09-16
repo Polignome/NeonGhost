@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{de507f41-5a50-4950-8d7e-40b62ff0e5eb}</ProjectGuid>
+    <RootNamespace>NeonGhostCore</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
+    <Link>
+      <SubSystem>
+      </SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
+    <Link>
+      <SubSystem>
+      </SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
+    <Link>
+      <SubSystem>
+      </SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+    </ClCompile>
+    <Link>
+      <SubSystem>
+      </SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="AABBox.h" />
+    <ClInclude Include="AABBox2D.h" />
+    <ClInclude Include="Blend.h" />
+    <ClInclude Include="Bounding.h" />
+    <ClInclude Include="BoundingCircle2D.h" />
+    <ClInclude Include="BoundingSphere.h" />
+    <ClInclude Include="Brush.h" />
+    <ClInclude Include="BspBuilder.h" />
+    <ClInclude Include="Bsprenderer.h" />
+    <ClInclude Include="Camera.h" />
+    <ClInclude Include="CameraController.h" />
+    <ClInclude Include="CameraFrustum.h" />
+    <ClInclude Include="Canvas2D.h" />
+    <ClInclude Include="Clipping.h" />
+    <ClInclude Include="CRC.h" />
+    <ClInclude Include="CSGTree.h" />
+    <ClInclude Include="Floodfill.h" />
+    <ClInclude Include="HalfLife.h" />
+    <ClInclude Include="Map.h" />
+    <ClInclude Include="miniz.h" />
+    <ClInclude Include="miniz_common.h" />
+    <ClInclude Include="miniz_export.h" />
+    <ClInclude Include="miniz_tdef.h" />
+    <ClInclude Include="miniz_tinfl.h" />
+    <ClInclude Include="miniz_zip.h" />
+    <ClInclude Include="Parser.h" />
+    <ClInclude Include="Portalgen.h" />
+    <ClInclude Include="SkyBoxGen.h" />
+    <ClInclude Include="tiny_obj_loader.h" />
+    <ClInclude Include="VFSFileManager.h" />
+    <ClInclude Include="VFSFileStream.h" />
+    <ClInclude Include="VFSDirectoryDrive.h" />
+    <ClInclude Include="VFSDirectoryFile.h" />
+    <ClInclude Include="FPSCounter.h" />
+    <ClInclude Include="framework.h" />
+    <ClInclude Include="Frustum.h" />
+    <ClInclude Include="fxlib.h" />
+    <ClInclude Include="Global.h" />
+    <ClInclude Include="HeightMapGenerator.h" />
+    <ClInclude Include="HierarchicalZBuffer.h" />
+    <ClInclude Include="HZBOcclusion.h" />
+    <ClInclude Include="Image.h" />
+    <ClInclude Include="KDTree2D.h" />
+    <ClInclude Include="KDTree3D.h" />
+    <ClInclude Include="Lock.h" />
+    <ClInclude Include="Logo800x600.h" />
+    <ClInclude Include="Mesh.h" />
+    <ClInclude Include="MeshOld.h" />
+    <ClInclude Include="MeshGenerator.h" />
+    <ClInclude Include="Maskedocclusionbuffer.h" />
+    <ClInclude Include="Object2D.h" />
+    <ClInclude Include="Object3D.h" />
+    <ClInclude Include="OCTree.h" />
+    <ClInclude Include="PixelBuffer.h" />
+    <ClInclude Include="MathUtils.h" />
+    <ClInclude Include="Matrix.h" />
+    <ClInclude Include="NeonGhostCore.h" />
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="postfx.h" />
+    <ClInclude Include="Primitive.h" />
+    <ClInclude Include="Quaternion.h" />
+    <ClInclude Include="Rasterizer3D.h" />
+    <ClInclude Include="Rasterizer3dBase.h" />
+    <ClInclude Include="RayPlaneLine.h" />
+    <ClInclude Include="RenderPipeline.h" />
+    <ClInclude Include="ResourceManager.h" />
+    <ClInclude Include="ScreenVertex.h" />
+    <ClInclude Include="Sprite.h" />
+    <ClInclude Include="stb_image.h" />
+    <ClInclude Include="StdOutputBypass.h" />
+    <ClInclude Include="Texture.h" />
+    <ClInclude Include="Tilerasterizer.h" />
+    <ClInclude Include="tinyxml2.h" />
+    <ClInclude Include="Vertex.h" />
+    <ClInclude Include="VFSDrive.h" />
+    <ClInclude Include="VFSFile.h" />
+    <ClInclude Include="VFSMountPoint.h" />
+    <ClInclude Include="VFSStream.h" />
+    <ClInclude Include="VFSZipDrive.h" />
+    <ClInclude Include="VFSZipFile.h" />
+    <ClInclude Include="VFSZipStream.h" />
+    <ClInclude Include="VirtualFileSystem.h" />
+    <ClInclude Include="Visualize.h" />
+    <ClInclude Include="Waveformobj.h" />
+    <ClInclude Include="WorldSpawn.h" />
+    <ClInclude Include="ZBuffer.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Canvas2D.cpp" />
+    <ClCompile Include="CRC.cpp" />
+    <ClCompile Include="HalfLife.cpp" />
+    <ClCompile Include="miniz.c" />
+    <ClCompile Include="miniz_tdef.c" />
+    <ClCompile Include="miniz_tinfl.c" />
+    <ClCompile Include="miniz_zip.c" />
+    <ClCompile Include="Parser.cpp" />
+    <ClCompile Include="tiny_obj_loader.cc" />
+    <ClCompile Include="VFSDirectoryDrive.cpp" />
+    <ClCompile Include="VFSFileManager.cpp" />
+    <ClCompile Include="VFSFileStream.cpp" />
+    <ClCompile Include="VFSDirectoryFile.cpp" />
+    <ClCompile Include="Image.cpp" />
+    <ClCompile Include="Logo800x600.cpp" />
+    <ClCompile Include="NeonGhostCore.cpp" />
+    <ClCompile Include="pch.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="ResourceManager.cpp" />
+    <ClCompile Include="Sprite.cpp" />
+    <ClCompile Include="StdOutputBypass.cpp" />
+    <ClCompile Include="Texture.cpp" />
+    <ClCompile Include="tinyxml2.cpp" />
+    <ClCompile Include="VFSZipFile.cpp" />
+    <ClCompile Include="VFSVirtualFileSystem.cpp" />
+    <ClCompile Include="VFSZipDrive.cpp" />
+    <ClCompile Include="VFSZipStream.cpp" />
+    <ClCompile Include="Waveformobj.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
