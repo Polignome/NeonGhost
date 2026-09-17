@@ -46,6 +46,8 @@ namespace ng
 
             int materialId = -1;
             uint32_t objectId = 0;
+            uint32_t flags = 0;
+            int volumeId = -1;
 
             static BSPPolygon FromTriangle(
                 const Vertex& v0,
@@ -306,12 +308,22 @@ namespace ng
             // Wird von PortalGen.h gefüllt.
             std::vector<Portal<T>*> portals;
 
+            // NEU: nachtraeglich eingefuegte Polygone, die geometrisch in
+                // diesem Leaf liegen (Box-Flaechen, Volumen-Flaechen, Decals).
+                // Erzeugt KEINE neuen Splits, ist also nur an Leafs sinnvoll.
+            std::vector<BSPPolygon<T>> insertedPolygons;
+
+            // NEU: Ids der Bounding-Volumen (Wasser/Lava/...), in denen
+            // dieses Leaf (ganz oder teilweise) liegt.
+            std::vector<int> volumeIds;           
             // Wird später durch Floodfill gesetzt.
+
             enum class LeafType
             {
                 Unknown,
-                Empty,
-                Solid
+                Void,     // ausserhalb der Welt (Box-Flood)
+                Solid,    // massives Wandinneres
+                Empty     // begehbarer Innenraum (Playable-Flood)
             };
 
             LeafType leafType =

@@ -51,7 +51,10 @@
 #include "VFSZipFile.h"
 #include "VFSZipDrive.h"
 #include "BspBuilder.h"
+#include "BSPInsert.h"
 #include "SkyBoxGen.h"
+
+
 #include "Portalgen.h"
 #include "Floodfill.h"
 #include "Bsprenderer.h"

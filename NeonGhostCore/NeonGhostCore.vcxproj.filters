@@ -369,6 +369,9 @@
     <ClInclude Include="CSGTree.h">
       <Filter>Headerdateien\Map</Filter>
     </ClInclude>
+    <ClInclude Include="BSPInsert.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

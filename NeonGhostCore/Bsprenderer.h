@@ -60,7 +60,7 @@ namespace ng
             PipelineT& pipeline)
         {
             if (!node) return;
-
+            if (node->leafType == BSPNode<T>::LeafType::Solid) return;
             if (node->isLeaf)
             {
                 RenderNodePolygons(node, pipeline);
@@ -99,6 +99,7 @@ namespace ng
             PipelineT& pipeline)
         {
             if (!node) return;
+            if (node->leafType == BSPNode<T>::LeafType::Solid) return;
 
             if (node->isLeaf)
             {

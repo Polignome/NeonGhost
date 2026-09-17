@@ -220,7 +220,7 @@ namespace ng
         // ------------------------------------------------------------
         // Konvexes Polygon von anderem Polygon abziehen.
         // ------------------------------------------------------------
-
+        /*
         template<class T>
         inline std::vector<std::vector<ng::geometry::Vertex<T>>>
             SubtractConvexPolygon(
@@ -295,6 +295,123 @@ namespace ng
 
             return result;
         }
+        */
+
+        template<class T>
+        inline std::vector<std::vector<ng::geometry::Vertex<T>>>
+            SubtractConvexPolygon(
+                const std::vector<ng::geometry::Vertex<T>>& basePoly,
+                const std::vector<ng::geometry::Vertex<T>>& subtractPoly,
+                const ng::math::RayPlaneLine<3, T>& facePlane,
+                T epsilon)
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            using Vertex = ng::geometry::Vertex<T>;
+            using Plane = ng::math::RayPlaneLine<3, T>;
+
+            std::vector<std::vector<Vertex>> result;
+
+            if (basePoly.size() < 3 ||
+                subtractPoly.size() < 3)
+            {
+                result.push_back(basePoly);
+                return result;
+            }
+
+            // ----------------------------------------------------------
+            // NEU: Windung von subtractPoly relativ zu facePlane
+            // normalisieren. Wir berechnen die tatsaechliche Normale des
+            // subtractPoly ueber Newell's method und vergleichen sie mit
+            // facePlane.normal(). Zeigen sie NICHT in dieselbe Richtung,
+            // drehen wir die Vertex-Reihenfolge um.
+            // ----------------------------------------------------------
+
+            auto computeNewellNormal =
+                [](const std::vector<Vertex>& poly) -> Vec3
+                {
+                    Vec3 n(0, 0, 0);
+                    const size_t cnt = poly.size();
+
+                    for (size_t i = 0; i < cnt; ++i)
+                    {
+                        const Vec3& a = poly[i].world();
+                        const Vec3& b = poly[(i + 1) % cnt].world();
+
+                        n.x() += (a.y() - b.y()) * (a.z() + b.z());
+                        n.y() += (a.z() - b.z()) * (a.x() + b.x());
+                        n.z() += (a.x() - b.x()) * (a.y() + b.y());
+                    }
+
+                    return n;
+                };
+
+            std::vector<Vertex> normalizedSubtract = subtractPoly;
+
+            Vec3 subNormal = computeNewellNormal(subtractPoly);
+
+            if ((subNormal ^ facePlane.normal()) < static_cast<T>(0))
+            {
+                std::reverse(
+                    normalizedSubtract.begin(),
+                    normalizedSubtract.end());
+            }
+
+            // ----------------------------------------------------------
+            // Ab hier wie bisher, aber mit normalizedSubtract statt
+            // subtractPoly.
+            // ----------------------------------------------------------
+
+            const size_t k = normalizedSubtract.size();
+
+            std::vector<Plane> edgePlanes;
+            edgePlanes.reserve(k);
+
+            for (size_t i = 0; i < k; ++i)
+            {
+                const Vec3& a = normalizedSubtract[i].world();
+                const Vec3& b = normalizedSubtract[(i + 1) % k].world();
+
+                Vec3 edgeDir = b - a;
+
+                Vec3 n = facePlane.normal() % edgeDir;
+                T len = n.length();
+
+                if (len > static_cast<T>(1e-12))
+                    n *= static_cast<T>(1) / len;
+
+                Plane ep(a, n);
+
+                edgePlanes.push_back(ep);
+            }
+
+            std::vector<Vertex> remaining = basePoly;
+
+            for (size_t i = 0; i < k; ++i)
+            {
+                if (remaining.size() < 3)
+                    break;
+
+                auto outside =
+                    ClipWindingToPlane(
+                        remaining,
+                        edgePlanes[i],
+                        false,
+                        epsilon);
+
+                if (outside.size() >= 3)
+                    result.push_back(std::move(outside));
+
+                remaining =
+                    ClipWindingToPlane(
+                        remaining,
+                        edgePlanes[i],
+                        true,
+                        epsilon);
+            }
+
+            return result;
+        }
+
 
 
         // ------------------------------------------------------------
@@ -687,7 +804,48 @@ namespace ng
             return allPortals;
         }
 
+        template<class T>
+        inline T ComputeWorldSize(
+            const std::vector<BSPPolygon<T>>& levelPolys,
+            T marginFactor = static_cast<T>(1.5))
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
 
+            Vec3 mn(
+                std::numeric_limits<T>::max(),
+                std::numeric_limits<T>::max(),
+                std::numeric_limits<T>::max());
+
+            Vec3 mx(
+                -std::numeric_limits<T>::max(),
+                -std::numeric_limits<T>::max(),
+                -std::numeric_limits<T>::max());
+
+            for (const auto& poly : levelPolys)
+            {
+                for (const auto& v : poly.verts)
+                {
+                    const Vec3& p = v.world();
+
+                    mn.x() = std::min(mn.x(), p.x());
+                    mn.y() = std::min(mn.y(), p.y());
+                    mn.z() = std::min(mn.z(), p.z());
+
+                    mx.x() = std::max(mx.x(), p.x());
+                    mx.y() = std::max(mx.y(), p.y());
+                    mx.z() = std::max(mx.z(), p.z());
+                }
+            }
+
+            Vec3 extent = mx - mn;
+
+            T maxExtent = std::max({ extent.x(), extent.y(), extent.z() });
+
+            // Sicherheitsmarge: Box muss die Geometrie komplett umschliessen,
+            // inkl. Rand-Fällen (achsen-nahe Brushes, Rundungsfehler beim
+            // Splitten, etc.)
+            return maxExtent * marginFactor;
+        }
         // ------------------------------------------------------------
         // Debug / Statistik
         // ------------------------------------------------------------

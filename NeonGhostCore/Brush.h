@@ -133,6 +133,12 @@ namespace ng {
 			inline int32_t& textureIndex() { return m_textureIndex; }
 
 			
+			inline void SetNormalColor(const T& r = 1, const T& g = 1, const T& b = 1, const T& a = 1) {
+				 math::Matrix<3, 1, T> color = math::Matrix<3, 1, T>::NormalToColor(plane().normal(), r, g, b, a);
+				for (auto& v : m_verts) v.color() = color;
+			}
+
+
 			inline T area() {
 				if (verts().size() < 3)
 					return (T)0.0f;
@@ -531,6 +537,22 @@ namespace ng {
 
 					p.aggregate() = m_faces[i].aggregate();
 					p.textureIndex() = m_faces[i].texture();
+
+
+
+					if (m_faces[i].aggregate() == BrushFace<T>::SOLID) p.SetNormalColor();
+					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::WATER) {
+						p.SetNormalColor((T)0.5, (T)0.5, (T)1, (T)0.4);
+						printf("LIQUID\n");
+					}
+					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::LAVA)  p.SetNormalColor((T)1, (T)0.5, (T)0.5, (T)0.4);
+					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::ACCID) p.SetNormalColor((T)0.5, (T)1, (T)0.5, (T)0.4);
+					if (m_faces[i].aggregate() & BrushFace<T>::GLASS)  p.SetNormalColor((T)1, (T)1, (T)0.5, (T)0.4);
+
+
+
+
+
 					if (m_faces[i].no_splitter()) {
 					}
 

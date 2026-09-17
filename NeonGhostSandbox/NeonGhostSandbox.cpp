@@ -181,7 +181,7 @@ inline void Render() {
 
     for (int i = 0; i < m_bsp_list.size(); i++)
     {
-        m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE;
+        m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
 
         ng::bsp::RenderFrontToBack(
             m_bsp_list[i].bsp_tree.get(),                    // BSPNode<T>* (Root des Baums)
@@ -191,7 +191,7 @@ inline void Render() {
         for (int j = 0; j < m_bsp_list[i].portals.size(); j++)
         {
             m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST |   ng::renderer::rasterizer::RASTER_TRANSPARENT;
-
+            m_render_pipeline_3d.RenderPolygon(m_bsp_list[i].portals[j]->winding);
         }
         
     }
@@ -641,11 +641,45 @@ int main(int argc, char** argv) {
                 auto brush=data.ExtractBrushes();
                 brush = ng::map::csg::MakeUnion(brush);
 
+                std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
+
                 for (auto b : brush) {
                     auto h=b.primitives();
-                    m_map_brush_polys.insert(m_map_brush_polys.end(), h.begin(), h.end());
+                    for (auto p : h) {
+                        for (size_t i = 1; i < p.verts().size() - 1; ++i)
+                        {
+                            ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly= ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1]);
+                            polys.push_back(poly);
+                        }
+                    }
+
                 }
-                        
+                                
+                NG_MATH_FLOAT worldSize = ng::bsp::ComputeWorldSize(polys, static_cast<NG_MATH_FLOAT>(1.5));
+
+
+                auto root = ng::bsp::BuildBSP(polys);
+                auto portals = ng::bsp::GeneratePortals(root.get(), worldSize);
+
+                auto boxPolys = ng::bsp::MakeBoundsBoxPolygons<NG_MATH_FLOAT>(worldSize * static_cast<NG_MATH_FLOAT>(0.99));
+                ng::bsp::InsertPolygons(root.get(), boxPolys);
+
+                // 3) Startleaf ueber Markierung finden
+                ng::bsp::BSPNode<NG_MATH_FLOAT>* outsideLeaf = ng::bsp::FindOutsideLeafViaBoxMarker(root.get());
+                assert(outsideLeaf);
+
+                // 4) Floodfill + Leak-Check
+                ng::bsp::LeakInfo<NG_MATH_FLOAT> leak = ng::bsp::FloodFillOutsideFromLeaf(outsideLeaf, root.get());
+                ng::bsp::FinalizeLeafTypes(root.get());
+                if (leak.hasLeak) { /* leak.path visualisieren */ }
+
+
+                BspData<NG_MATH_FLOAT> bspdata;
+                bspdata.bsp_tree = std::move(root);
+                bspdata.portals = std::move(portals);
+
+
+                m_bsp_list.push_back(std::move(bspdata));
             }
         }
 
@@ -669,7 +703,7 @@ int main(int argc, char** argv) {
                 auto sceneBounds = ng::bsp::AddSkyboxToScene(polys, 200.0);
                 auto tree = ng::bsp::BuildBSP<double>(std::move(polys));
                 auto allPortals = ng::bsp::GeneratePortals<double>(tree.get(), sceneBounds.Length() * 1.0);
-                              
+
 
                 // Seed = Zentrum der Skybox (garantiert offene Luft, sofern das
                 // Schloss den Skybox-Mittelpunkt nicht komplett ausfuellt)

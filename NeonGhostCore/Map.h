@@ -50,20 +50,7 @@ namespace ng {
 			inline const map::WorldSpawn<T>& GetWorldSpwan() const { return m_worldspawn; }
 			inline       map::WorldSpawn<T>& GetWorldSpwan() { return m_worldspawn; }
 
-			/*
-			inline std::vector<primitive::Primitive<3, T>> ExtractPrims(bool rebuild_polygons = false) {
-				std::vector<primitive::Primitive<3, T>> data;
-
-
-				for (auto sb : GetWorldSpwan().GetSolidBrushes())
-				{
-					if (rebuild_polygons) sb.Rebuild();
-					data.insert(data.end(), sb.primitives().begin(), sb.primitives().end());
-				}
-				return data;
-			}
-			*/
-			
+						
 			inline std::vector<Brush<T>> ExtractBrushes(bool solid = true) {
 				std::vector<Brush< T>> data;
 
@@ -102,7 +89,7 @@ namespace ng {
 
 				if (entity.name == "solid") AddBrush(entity);
 
-				//			for (unsigned int i = 0; i < entity.sub_entry.size(); i++)	StepEntitys(entity.sub_entry[i]);
+		
 				for (auto e : entity.sub_entry)	StepEntitys(e);
 			}
 
@@ -136,9 +123,6 @@ namespace ng {
 				for (unsigned int i = 0; i < entity.parameter.size(); i++)
 				{
 					TEntityParam p = entity.parameter[i];
-
-
-
 
 					if (p.name == "uaxis") {
 						GetEntity<T>(p, ray.uAxis(), ray.uScale());
@@ -199,12 +183,8 @@ namespace ng {
 					}
 				}
 
-
 				brush.AddFacePlane(ray);
-
-
 			}
-
 
 		};
 
