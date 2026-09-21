@@ -161,8 +161,8 @@ inline void RenderBsp( ng::bsp::BSPTree<NG_MATH_FLOAT> tree) {
     */
     int32_t cell = m_cells.FindCell(m_camera.position());
     std::vector<uint32_t> list;
-    if (!m_cells.CollectVisiblePolygons(m_pvs, cell, list))m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE |  ng::renderer::rasterizer::RASTER_VERTEXCOLOR; 
-    else m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+    m_cells.CollectVisiblePolygons(m_pvs, cell, list);
+     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
     const auto& polys = m_cells.Polygons();
 
     for (uint32_t idx : list)
@@ -227,7 +227,7 @@ inline void Render() {
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
 
-    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR | ng::renderer::rasterizer::RASTER_TEXTURE;
     //  for (auto bp : m_map_brush_polys) m_render_pipeline_3d.RenderPolygon(bp.verts());
     //  m_render_pipeline_3d.RenderMesh(m_mesh_obj);
     //  RenderBsp(m_bsp);
@@ -699,7 +699,6 @@ int main(int argc, char** argv) {
                 auto aabb=ng::bsp::ComputeSceneBounds(polys);
                 auto sky =ng::bsp::GenerateSkyboxPolygons(aabb,(NG_MATH_FLOAT) 100);
 
-
                 for (auto p : sky)polys.push_back(p);
                 m_bsp.Build(polys);
                 m_num_bsp_leafs = m_bsp.GetLeaves().size();
@@ -721,6 +720,9 @@ int main(int argc, char** argv) {
                 ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
                 po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
                 po.verbose = true;
+                po.skipVoidLeaves = true;
+                po.requirePolygonsInComponent = true;
+                po.minPortalArea = 0.1;
                 m_pvs.Build(m_cells.Tree(),po);            // PVS auf den groben Zellen
 
                 // Rendering

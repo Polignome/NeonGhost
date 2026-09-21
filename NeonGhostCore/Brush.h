@@ -743,6 +743,7 @@ namespace ng {
 				CheckAggregate();
 				for (const auto& p : m_prims)
 					(*this) += p.verts();
+				ApplyUVs();
 			}
 
 

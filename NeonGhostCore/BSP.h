@@ -1279,6 +1279,145 @@ namespace ng
             }
 
             // --------------------------------------------------------
+            // CollapseSmallCells
+            //
+            // Fasst Teilbaeume zu EINEM Leaf zusammen, wenn darin nur wenig
+            // "Innenwand" steckt: Summe der Flaeche der Polygone, die INNERHALB des
+            // Teilbaums als Splitter verbraucht wurden (Waende auf dem Rand der Zelle
+            // zaehlen nicht). Ein Teilbaum ist eine konvexe Zelle - das Ergebnis
+            // bleibt also ein gueltiger BSP mit konvexen Leaves.
+            //
+            // Konservativ fuer die Sichtbarkeit: Waende im Inneren werden ignoriert
+            // (mehr sichtbar, nie weniger).
+            //
+            // Danach BuildPortals() NEU ausfuehren: Portale zwischen den
+            // zusammengefassten Leaves verschwinden, in Stuecke zerlegte Portale
+            // nach aussen werden wieder ein Portal.
+            //
+            // NUR fuer Vis-Baeume! Nicht fuer den Baum des Flood Fill benutzen
+            // (der braucht exakte Zellgrenzen).
+            //
+            // Rueckgabe: Anzahl zusammengefasster Teilbaeume.
+            // --------------------------------------------------------
+            inline size_t CollapseSmallCells(T maxOccluderArea)
+            {
+                if (!m_root || m_root->isLeaf()) return 0;
+
+                // 1. Pre-Order-Liste aller Knoten mit Elternindex
+                //    (Eltern haben immer einen kleineren Index als ihre Kinder).
+                std::vector<BSPNode<T>*> nodes;
+                std::vector<int32_t> parent;
+                {
+                    struct Item { BSPNode<T>* node; int32_t parent; };
+                    std::vector<Item> stack;
+                    stack.push_back(Item{ m_root.get(), -1 });
+
+                    while (!stack.empty())
+                    {
+                        const Item it = stack.back();
+                        stack.pop_back();
+
+                        const int32_t idx = (int32_t)nodes.size();
+                        nodes.push_back(it.node);
+                        parent.push_back(it.parent);
+
+                        if (!it.node->isLeaf())
+                        {
+                            if (it.node->m_back_node)  stack.push_back(Item{ it.node->m_back_node.get(),  idx });
+                            if (it.node->m_front_node) stack.push_back(Item{ it.node->m_front_node.get(), idx });
+                        }
+                    }
+                }
+
+                // 2. Innenwand-Flaeche pro Teilbaum (Kinder vor Eltern aufsummieren)
+                std::vector<T> occ(nodes.size(), T(0));
+
+                for (size_t i = 0; i < nodes.size(); ++i)
+                {
+                    if (nodes[i]->isLeaf()) continue;
+                    for (const auto& p : nodes[i]->m_coplanar)
+                        occ[i] += VertsArea(p.verts);
+                }
+
+                for (size_t i = nodes.size(); i-- > 1;)
+                    occ[parent[i]] += occ[i];
+
+                // 3. Groebste Aufteilung: 0 = behalten, 1 = Wurzel eines zusammengefassten
+                //    Teilbaums, 2 = liegt innerhalb eines solchen.
+                std::vector<uint8_t> state(nodes.size(), 0);
+
+                for (size_t i = 0; i < nodes.size(); ++i)
+                {
+                    if (parent[i] >= 0 && state[parent[i]] != 0) { state[i] = 2; continue; }
+                    if (!nodes[i]->isLeaf() && occ[i] <= maxOccluderArea) state[i] = 1;
+                }
+
+                // 4. Zusammenfassen
+                size_t collapsed = 0;
+
+                for (size_t i = 0; i < nodes.size(); ++i)
+                {
+                    if (state[i] != 1) continue;
+
+                    BSPNode<T>* n = nodes[i];
+
+                    std::vector<BSPPolygon<T>> gathered;
+                    uint32_t mergedState = 0;
+
+                    std::vector<BSPNode<T>*> stack;
+                    stack.push_back(n->m_front_node.get());
+                    stack.push_back(n->m_back_node.get());
+
+                    while (!stack.empty())
+                    {
+                        BSPNode<T>* c = stack.back();
+                        stack.pop_back();
+                        if (!c) continue;
+
+                        if (c->isLeaf())
+                        {
+                            for (auto& poly : c->polys) gathered.push_back(std::move(poly));
+                            c->polys.clear();
+                            mergedState |= (c->m_state & ~static_cast<uint32_t>(NODE | LEAF));
+                            continue;
+                        }
+
+                        stack.push_back(c->m_front_node.get());
+                        stack.push_back(c->m_back_node.get());
+                    }
+
+                    n->m_front_node.reset();
+                    n->m_back_node.reset();
+                    n->m_coplanar.clear();
+                    n->m_coplanar.shrink_to_fit();
+                    n->polys = std::move(gathered);
+                    n->m_state = static_cast<uint32_t>(LEAF) | mergedState;
+
+                    ++collapsed;
+                }
+
+                // 5. Leaf-Liste mit neuen IDs aufbauen, alte Portale sind ungueltig
+                m_leaflist.clear();
+                m_portals.clear();
+
+                std::vector<std::shared_ptr<BSPNode<T>>> st;
+                st.push_back(m_root);
+
+                while (!st.empty())
+                {
+                    std::shared_ptr<BSPNode<T>> c = std::move(st.back());
+                    st.pop_back();
+
+                    if (c->isLeaf()) { AddLeaf(c); continue; }
+
+                    if (c->m_back_node)  st.push_back(c->m_back_node);
+                    if (c->m_front_node) st.push_back(c->m_front_node);
+                }
+
+                return collapsed;
+            }
+
+            // --------------------------------------------------------
             // Leaves mit einem State-Flag sammeln
             // --------------------------------------------------------
             inline std::vector<std::shared_ptr<BSPNode<T>>>

@@ -30,7 +30,7 @@
 // ----------------------------------------------------------------------
 
 #include "BSP.h"
-#include "Pvs.h"
+#include "PVS.h"
 
 #include <vector>
 #include <unordered_map>
@@ -54,6 +54,14 @@ namespace ng
 
             // 0 = unbegrenzt. Sonst nur die N flaechenmaessig groessten Ebenen.
             size_t maxStructuralPlanes = 0;
+
+            // Teilbaeume, in denen weniger als maxOccluderArea Innenwand steckt
+            // (Flaeche der Polygone, die INNERHALB der Zelle liegen, nicht auf ihrem
+            // Rand), werden zu EINER Zelle zusammengefasst. Weniger Zellen und Portale,
+            // schnelleres PVS - dafuer etwas weniger Culling und groebere Zellen.
+            // 0 = nichts zusammenfassen.
+            bool mergeSmallCells = true;
+            T maxOccluderArea = T(1024);
 
             // Werden an den Vis-BSP weitergereicht.
             T epsilon = T(0.01);
@@ -191,6 +199,17 @@ namespace ng
                 m_tree.SetMinPortalWidth(opt.minPortalWidth);
 
                 m_tree.Build(structural);
+
+                if (opt.mergeSmallCells && opt.maxOccluderArea > T(0))
+                {
+                    const size_t before = m_tree.GetLeaves().size();
+                    const size_t merged = m_tree.CollapseSmallCells(opt.maxOccluderArea);
+
+                    if (opt.verbose)
+                        printf("[VisCells] Zellen zusammengefasst: %zu Teilbaeume, Zellen %zu -> %zu\n",
+                            merged, before, m_tree.GetLeaves().size());
+                }
+
                 m_tree.BuildPortals();
 
                 if (opt.verbose)
@@ -226,7 +245,7 @@ namespace ng
             // Ist die Zelle nicht Teil des begehbaren Bereichs (z.B. Kamera ausserhalb),
             // werden ALLE Polygone geliefert.
             // Nicht thread-sicher (interner Zeitstempel zur Duplikat-Vermeidung).
-            bool CollectVisiblePolygons(const PVS<T>& pvs, int32_t fromCell,
+            void CollectVisiblePolygons(const PVS<T>& pvs, int32_t fromCell,
                 std::vector<uint32_t>& out) const
             {
                 out.clear();
@@ -235,7 +254,7 @@ namespace ng
                 {
                     out.resize(m_polys.size());
                     std::iota(out.begin(), out.end(), uint32_t(0));
-                    return false;
+                    return;
                 }
 
                 if (m_stamp.size() != m_polys.size())
@@ -264,7 +283,6 @@ namespace ng
                         out.push_back(pi);
                     }
                 }
-                return true;
             }
 
         private:
