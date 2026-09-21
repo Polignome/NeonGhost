@@ -21,6 +21,7 @@
 #include "FPSCounter.h"
 #include "HalfLife.h"
 #include <Map.h>
+
 #pragma comment(lib,"SDL2.lib")
 #pragma comment(lib,"SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -41,19 +42,17 @@ const size_t MAX_POLY_COUNTS = 100;
 
 
 static ng::tools::FPSCounter m_fps_counter;
+static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
+static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
+static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
+static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
+
+
 
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 //static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
 static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
 
-template <class T>
-struct BspData {
-    std::unique_ptr<ng::bsp::BSPNode<T>> bsp_tree;
-    std::vector<std::unique_ptr<ng::bsp::Portal<T>>> portals;
-};
-
-
-static std::vector <BspData<NG_MATH_FLOAT>> m_bsp_list;
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
 std::string VFSFilePicker(bool& show, std::string wildcard) {
     if (!show) return "";
@@ -121,6 +120,60 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 }
 
 
+inline void RenderNode(const std::shared_ptr<ng::bsp::BSPNode<NG_MATH_FLOAT>> &node) {
+    if (node == nullptr) return;
+
+    
+    if (node->isLeaf()) {
+        for (auto p : node->GetPolygons()) {
+            m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+            m_render_pipeline_3d.RenderPolygon(p.verts);
+        }
+    }
+    
+
+
+
+    if (node->GetFrontNode() != nullptr) RenderNode(node->GetFrontNode());
+    if (node->GetBackNode() != nullptr) RenderNode(node->GetBackNode());
+
+}
+
+inline void RenderBsp( ng::bsp::BSPTree<NG_MATH_FLOAT> tree) {
+    
+    
+   /*
+    if (!m_pvs.IsActiveLeaf(leaf_id)) {
+        RenderNode(tree.GetRoot());
+        return;
+    }
+
+    auto leafs=m_pvs.VisibleLeaves(leaf_id);
+    m_num_visible_leafs = leafs.size();
+    for (auto lid : leafs) {
+        auto leaf=m_bsp.GetLeaves()[lid];
+         
+        for (auto p : leaf->GetPolygons()) {
+            m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+            m_render_pipeline_3d.RenderPolygon(p.verts);
+        }
+    }
+    */
+    int32_t cell = m_cells.FindCell(m_camera.position());
+    std::vector<uint32_t> list;
+    if (!m_cells.CollectVisiblePolygons(m_pvs, cell, list))m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE |  ng::renderer::rasterizer::RASTER_VERTEXCOLOR; 
+    else m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+    const auto& polys = m_cells.Polygons();
+
+    for (uint32_t idx : list)
+    {
+        const ng::bsp::BSPPolygon<NG_MATH_FLOAT>& p = polys[idx];
+        
+        m_render_pipeline_3d.RenderPolygon(p.verts);
+
+    }
+}
+
 inline void Render() {
     static double totalTime = 0.0;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_old_pos;
@@ -145,11 +198,8 @@ inline void Render() {
         auto delta = m_cam_pos - m_cam_old_pos;  m_cam_old_pos= m_cam_pos;
         snow->SetCameraDelta(delta);
         snow->SetCamera(m_camera.forward(), m_camera.up());
-       
         snow->SetFOV(ng::math::radiansToDegrees(m_camera.fov()));
-        
-        snow->SetAspect(
-            m_camera.aspect());
+        snow->SetAspect( m_camera.aspect());
     }
     
 
@@ -177,31 +227,16 @@ inline void Render() {
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
 
-    m_render_pipeline_3d.RenderMesh(m_mesh_obj);
-
-    for (int i = 0; i < m_bsp_list.size(); i++)
-    {
-        m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
-
-        ng::bsp::RenderFrontToBack(
-            m_bsp_list[i].bsp_tree.get(),                    // BSPNode<T>* (Root des Baums)
-            m_camera.position(),           // Vec3 - Betrachterposition
-            m_render_pipeline_3d           // eure RenderPipeline<T>-Instanz (mit RenderPolygon())
-        );
-        for (int j = 0; j < m_bsp_list[i].portals.size(); j++)
-        {
-            m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST |   ng::renderer::rasterizer::RASTER_TRANSPARENT;
-            m_render_pipeline_3d.RenderPolygon(m_bsp_list[i].portals[j]->winding);
-        }
-        
-    }
-    
-
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
-    for (auto bp : m_map_brush_polys)
-    m_render_pipeline_3d.RenderPolygon(bp.verts());
+    //  for (auto bp : m_map_brush_polys) m_render_pipeline_3d.RenderPolygon(bp.verts());
+    //  m_render_pipeline_3d.RenderMesh(m_mesh_obj);
+    //  RenderBsp(m_bsp);
 
-    
+    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, [&](int mat)
+        {
+            m_rasterizer_3d.State().diffuseTex=&textview;
+
+        });
     m_render_pipeline_3d.End();
         
     double deltaTime = ImGui::GetIO().DeltaTime;
@@ -213,16 +248,24 @@ inline void Render() {
     float inp = (float)m_render_pipeline_3d.GetStatistics().polys_in;
     float outp = (float)m_render_pipeline_3d.GetStatistics().polys_rendered;
     float fps = (float)m_fps_counter.FPS();
-    if (inp > m_max_in_polys) m_max_in_polys = outp;
+    float cc = (float)m_render_pipeline_3d.GetStatistics().cells_with_geometry;
+    if (inp > m_max_in_polys) m_max_in_polys = inp;
     if (outp > m_max_out_polys) m_max_out_polys = outp;
     if (fps > m_max_fps) m_max_fps = fps;
-  
+    if (cc > m_max_out_cells) m_max_out_cells = cc;
+
+
     addValue(m_in_polycount, inp, MAX_POLY_COUNTS);
     addValue(m_out_polycount, outp, MAX_POLY_COUNTS);
     addValue(m_fps_count, (float)m_fps_counter.FPS(), MAX_POLY_COUNTS);
-    
-}
+    addValue(m_out_cellscount, cc, m_render_pipeline_3d.GetStatistics().cells_in_pvs);
+    /*
+    printf("Zellen: PVS %u, mit Geometrie %u, Frustum %u, MOC %u, HZB %u, gerendert %u\n",
+        s.cells_in_pvs, s.cells_with_geometry, s.cells_frustum_culled,
+        s.cells_culled_by_moc, s.cells_culled_by_hzb, s.cells_rendered);
+        */
 
+}
 
 
 template<typename T>
@@ -547,7 +590,6 @@ int main(int argc, char** argv) {
                 ImGui::Image(m_logo_renderer.GetImTextureID(), ImVec2(x, y));
                 ImGui::End();
             }
-
         }
 
         if (ImGui::BeginMainMenuBar()) {
@@ -598,8 +640,9 @@ int main(int argc, char** argv) {
                 }
                 ImGui::EndMenu();
 
-
             }
+
+
 
 
             if (m_view_render_fullscreen) AddRenderMenuSubMenue();
@@ -615,7 +658,6 @@ int main(int argc, char** argv) {
             
         }
                 
-
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
         if (m_tools_font_window) ng::gui::ShowFontViewer(m_tools_font_window);
@@ -630,6 +672,7 @@ int main(int argc, char** argv) {
         if (m_resource_window_visible)ResourcemanagerWindow(m_resource_window_visible);
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
+
 
         if (m_load_hlm) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
@@ -652,87 +695,39 @@ int main(int argc, char** argv) {
                             polys.push_back(poly);
                         }
                     }
-
                 }
-                                
-                NG_MATH_FLOAT worldSize = ng::bsp::ComputeWorldSize(polys, static_cast<NG_MATH_FLOAT>(1.5));
+                auto aabb=ng::bsp::ComputeSceneBounds(polys);
+                auto sky =ng::bsp::GenerateSkyboxPolygons(aabb,(NG_MATH_FLOAT) 100);
 
 
-                auto root = ng::bsp::BuildBSP(polys);
-                auto portals = ng::bsp::GeneratePortals(root.get(), worldSize);
-
-                auto boxPolys = ng::bsp::MakeBoundsBoxPolygons<NG_MATH_FLOAT>(worldSize * static_cast<NG_MATH_FLOAT>(0.99));
-                ng::bsp::InsertPolygons(root.get(), boxPolys);
-
-                // 3) Startleaf ueber Markierung finden
-                ng::bsp::BSPNode<NG_MATH_FLOAT>* outsideLeaf = ng::bsp::FindOutsideLeafViaBoxMarker(root.get());
-                assert(outsideLeaf);
-
-                // 4) Floodfill + Leak-Check
-                ng::bsp::LeakInfo<NG_MATH_FLOAT> leak = ng::bsp::FloodFillOutsideFromLeaf(outsideLeaf, root.get());
-                ng::bsp::FinalizeLeafTypes(root.get());
-                if (leak.hasLeak) { /* leak.path visualisieren */ }
+                for (auto p : sky)polys.push_back(p);
+                m_bsp.Build(polys);
+                m_num_bsp_leafs = m_bsp.GetLeaves().size();
+                m_bsp.BuildPortals();
+                 
 
 
-                BspData<NG_MATH_FLOAT> bspdata;
-                bspdata.bsp_tree = std::move(root);
-                bspdata.portals = std::move(portals);
-
-
-                m_bsp_list.push_back(std::move(bspdata));
-            }
-        }
-
-        if (m_load_obj) {
-            std::string filename = ng::gui::FilePicker(m_load_obj, "*.obj");
-            if (!filename.empty()) {
-                std::string name = std::filesystem::path(filename).stem().string();
+                auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
+                m_bsp.RemoveReachedPolygons(reached);            // Polygone in allen erreichten Leaves loeschen
+                auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
+           
                 
-                ng::resource::WaveformObjResourceManager::LoadObjFromFile(name, filename);
-                auto m = ng::resource::WaveformObjResourceManager::GetResource(name);
                 
-                //ng::renderer::objects::Mesh<NG_MATH_FLOAT> mesh;
-                //m->ImportInto(mesh);
-                //m_mesh_obj.push_back(mesh);
-                                                
-
-                std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
-                m->ImportInto(polys);
+                m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
 
-                auto sceneBounds = ng::bsp::AddSkyboxToScene(polys, 200.0);
-                auto tree = ng::bsp::BuildBSP<double>(std::move(polys));
-                auto allPortals = ng::bsp::GeneratePortals<double>(tree.get(), sceneBounds.Length() * 1.0);
-
-
-                // Seed = Zentrum der Skybox (garantiert offene Luft, sofern das
-                // Schloss den Skybox-Mittelpunkt nicht komplett ausfuellt)
-                ng::math::Matrix<3, 1, double> outsideSeed = (sceneBounds.Min() + sceneBounds.Max()) * 0.5;
-
-                auto leak = ng::bsp::ClassifyLeaves(tree.get(), outsideSeed);
                 
-                if (leak.hasLeak)
-                {
-                    printf("LECK erkannt! Pfad hat %zu Stationen.\n", leak.path.size());
-                    // leak.path als Linie visualisieren (z.B. RenderLine zwischen
-                    // aufeinanderfolgenden Punkten) zum Auffinden der Luecke.
-                }
-                else
-                {
-                    ng::bsp::RemoveDoubleSolidPolygons(tree.get());
-                    // Baum ist jetzt fertig klassifiziert und bereinigt - bereit fuers
-                    // Portal-basierte Rendering.
-                }
-                            
-                BspData<NG_MATH_FLOAT> data;
-                data.bsp_tree = std::move(tree);
-                data.portals = std::move(allPortals);
-                m_bsp_list.push_back(std::move(data));
+                m_cells.Build(visible, m_vo);
+                ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
+                po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
+                po.verbose = true;
+                m_pvs.Build(m_cells.Tree(),po);            // PVS auf den groben Zellen
+
+                // Rendering
             
             }
-
         }
-
+                       
                 
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };

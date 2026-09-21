@@ -17,7 +17,7 @@
 // std::reverse() dreht die Wicklung genau dafuer um).
 // =====================================================================
 
-#include "BSPBuilder.h"
+#include "BSP.h"
 #include "AABBox.h"
 #include <vector>
 
@@ -78,8 +78,9 @@ namespace ng
 
                     v2.world() = face[i + 1];
                     v2.texture() = uv[i + 1];
-
-                    result.push_back(BSPPolygon<T>::FromTriangle(v2, v1, v0, materialId));
+                    auto tri = BSPPolygon<T>::FromTriangle(v2, v1, v0, materialId);
+                    tri.flags = POLY_FLAG_OUT_SIDE;
+                    result.push_back(tri);
                 }
             }
             return result;

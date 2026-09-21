@@ -8,6 +8,12 @@
 #include <iostream>
 #include <iomanip>
 #include <map>
+#include <vector>
+#include <string>
+#include <functional>
+#include <algorithm>
+#include <limits>
+#include <cmath>
 #include "Clipping.h"
 
 
@@ -62,11 +68,20 @@ namespace ng {
 
 
 
-
+			// GEAENDERT: kopiert jetzt ALLE Daten. Vorher gingen Texturachsen, Skalierung,
+			// Rotation und no_splitter bei jeder Zuweisung (z.B. Vektor-Zuweisung in
+			// Brush::operator=) verloren.
 			inline		BrushFace& operator=(const BrushFace& r) {
+				if (this == &r) return *this;
 				plane() = r.plane();
-				aggregate() = r.aggregate();
-				texture() = r.texture();
+				m_aggregate = r.m_aggregate;
+				m_texture = r.m_texture;
+				m_no_splitter = r.m_no_splitter;
+				m_uScale = r.m_uScale;
+				m_uaxis = r.m_uaxis;
+				m_vScale = r.m_vScale;
+				m_vaxis = r.m_vaxis;
+				m_rotate = r.m_rotate;
 				return *this;
 			}
 
@@ -100,15 +115,22 @@ namespace ng {
 			inline       T& rotate() { return m_rotate; }
 
 		private:
-			int32_t m_texture;
-			unsigned long m_aggregate;
-			bool m_no_splitter;
-			T m_uScale = (T)0.0;
-			math::Matrix<4, 1, T>	m_uaxis;
-			T m_vScale = (T)0.0;
-			math::Matrix<4, 1, T>	m_vaxis;
+			// GEAENDERT: Standardwerte, damit kein Konstruktor Member uninitialisiert laesst.
+			int32_t m_texture = -1;
+			unsigned long m_aggregate = SOLID;
+			bool m_no_splitter = false;
+			T m_uScale = (T)1.0;
+			math::Matrix<4, 1, T>	m_uaxis = ZeroAxis();
+			T m_vScale = (T)1.0;
+			math::Matrix<4, 1, T>	m_vaxis = ZeroAxis();
 			T m_rotate = (T)0.0;
 
+			static inline math::Matrix<4, 1, T> ZeroAxis()
+			{
+				math::Matrix<4, 1, T> m;
+				m(0) = (T)0; m(1) = (T)0; m(2) = (T)0; m(3) = (T)0;
+				return m;
+			}
 
 		};
 
@@ -123,18 +145,18 @@ namespace ng {
 
 
 			inline const std::vector<Vert3>& verts() const { return m_verts; }
-			inline       std::vector<Vert3>& verts()       { return m_verts; }
+			inline       std::vector<Vert3>& verts() { return m_verts; }
 
 
 			inline const uint32_t& aggregate() const { return m_aggregate; }
 			inline uint32_t& aggregate() { return m_aggregate; }
-			
+
 			inline const int32_t& textureIndex() const { return m_textureIndex; }
 			inline int32_t& textureIndex() { return m_textureIndex; }
 
-			
+
 			inline void SetNormalColor(const T& r = 1, const T& g = 1, const T& b = 1, const T& a = 1) {
-				 math::Matrix<3, 1, T> color = math::Matrix<3, 1, T>::NormalToColor(plane().normal(), r, g, b, a);
+				math::Matrix<3, 1, T> color = math::Matrix<3, 1, T>::NormalToColor(plane().normal(), r, g, b, a);
 				for (auto& v : m_verts) v.color() = color;
 			}
 
@@ -156,7 +178,7 @@ namespace ng {
 			}
 
 			BrushPoly() {}
-			BrushPoly(const math::RayPlaneLine<3, T>& plane, const T& size = 10000):m_plane(plane) { CrateByPlane(plane, size); }
+			BrushPoly(const math::RayPlaneLine<3, T>& plane, const T& size = 10000) :m_plane(plane) { CrateByPlane(plane, size); }
 
 			~BrushPoly() {};
 
@@ -221,7 +243,7 @@ namespace ng {
 			}
 
 
-			inline int classify(math::RayPlaneLine<3, T> face)  {
+			inline int classify(math::RayPlaneLine<3, T> face) {
 				bool front = false;
 				bool back = false;
 
@@ -238,21 +260,146 @@ namespace ng {
 				return ng::math::RayPlaneLine<3, T>::PLANAR;
 			}
 
-			private:
-				std::vector<Vert3> m_verts;
-				ng::math::RayPlaneLine<3, T> m_plane;
-				uint32_t 	m_aggregate = 0;
-				int32_t 	m_textureIndex = -1;
+		private:
+			std::vector<Vert3> m_verts;
+			ng::math::RayPlaneLine<3, T> m_plane;
+			uint32_t 	m_aggregate = 0;
+			int32_t 	m_textureIndex = -1;
 
 		};
+
+
+		// ==================================================================
+		// UV-Berechnung (Valve-220-Format)
+		//
+		//   [ Ux Uy Uz Uoffset ] [ Vx Vy Vz Voffset ] rotation Uscale Vscale
+		//
+		//   s = dot(P, uAxis) / uScale + uOffset      (Texel)
+		//   t = dot(P, vAxis) / vScale + vOffset
+		//   u = s / Texturbreite,  v = t / Texturhoehe
+		//
+		// Die Rotation steckt bereits in den Achsen und wird ignoriert.
+		// Sind keine Achsen gesetzt (beide 0), wird eine paraxiale Standard-
+		// projektion aus der Flaechennormale verwendet.
+		//
+		// Positionen und Achsen muessen im selben Koordinatensystem liegen
+		// (dem der Map). UV VOR einer Koordinaten-Umwandlung berechnen.
+		// ==================================================================
+
+		struct UVSettings
+		{
+			// Liefert die Texturgroesse in Pixeln fuer einen Textur-Index.
+			// Muss VOR dem Erzeugen der Brushes gesetzt werden, sonst werden
+			// keine UV berechnet.
+			std::function<void(int32_t, int&, int&)> texSize;
+
+			// v = 1 - v (falls Texturen kopfstehen, Bildursprung unten)
+			bool flipV = false;
+
+			// Zieht pro Polygon ganze Zahlen von den UV ab, damit sie klein
+			// bleiben. Nur bei wiederholten (wrap) Texturen zulaessig.
+			bool normalizeOrigin = true;
+		};
+
+		inline UVSettings& GetUVSettings()
+		{
+			static UVSettings s;
+			return s;
+		}
+
+		template <class T>
+		inline void ApplyFaceUV(BrushPoly<T>& poly, const BrushFace<T>& face,
+			int texW, int texH, bool flipV = false, bool normalizeOrigin = true)
+		{
+			using Vec3 = math::Matrix<3, 1, T>;
+
+			auto& verts = poly.verts();
+			if (verts.size() < 3) return;
+
+			if (texW <= 0) texW = 1;
+			if (texH <= 0) texH = 1;
+
+			const auto& fu = face.uAxis();
+			const auto& fv = face.vAxis();
+
+			Vec3 ua(fu(0), fu(1), fu(2));
+			Vec3 va(fv(0), fv(1), fv(2));
+			T uo = fu(3);
+			T vo = fv(3);
+			T us = (face.uScale() != T(0)) ? face.uScale() : T(1);
+			T vs = (face.vScale() != T(0)) ? face.vScale() : T(1);
+
+			// Keine Mapping-Daten -> paraxiale Standardprojektion
+			const T minLen = T(1e-6);
+			if (ua.length() < minLen || va.length() < minLen)
+			{
+				const Vec3 n = poly.plane().normal();
+				const T ax = std::abs(n(0));
+				const T ay = std::abs(n(1));
+				const T az = std::abs(n(2));
+
+				if (az >= ax && az >= ay)
+				{
+					ua = Vec3(T(1), T(0), T(0));
+					va = Vec3(T(0), T(-1), T(0));
+				}
+				else if (ax >= ay)
+				{
+					ua = Vec3(T(0), T(1), T(0));
+					va = Vec3(T(0), T(0), T(-1));
+				}
+				else
+				{
+					ua = Vec3(T(1), T(0), T(0));
+					va = Vec3(T(0), T(0), T(-1));
+				}
+
+				uo = vo = T(0);
+			}
+
+			const T invW = T(1) / T(texW);
+			const T invH = T(1) / T(texH);
+
+			std::vector<T> us_(verts.size());
+			std::vector<T> vs_(verts.size());
+
+			T minU = std::numeric_limits<T>::max();
+			T minV = std::numeric_limits<T>::max();
+
+			for (size_t i = 0; i < verts.size(); ++i)
+			{
+				const Vec3 p = verts[i].world();
+
+				const T s = (p(0) * ua(0) + p(1) * ua(1) + p(2) * ua(2)) / us + uo;
+				const T t = (p(0) * va(0) + p(1) * va(1) + p(2) * va(2)) / vs + vo;
+
+				T u = s * invW;
+				T v = t * invH;
+				if (flipV) v = T(1) - v;
+
+				us_[i] = u;
+				vs_[i] = v;
+				minU = std::min(minU, u);
+				minV = std::min(minV, v);
+			}
+
+			const T du = normalizeOrigin ? std::floor(minU) : T(0);
+			const T dv = normalizeOrigin ? std::floor(minV) : T(0);
+
+			for (size_t i = 0; i < verts.size(); ++i)
+			{
+				verts[i].texture().x() = us_[i] - du;
+				verts[i].texture().y() = vs_[i] - dv;
+			}
+		}
 
 
 		template <class T >
 		class Brush : public bounding::AABBox<3, T>
 		{
 		public:
-			
-			
+
+
 
 
 			inline std::string toStr() {
@@ -263,7 +410,7 @@ namespace ng {
 			}
 
 
-			
+
 
 			Brush(void) :m_aggregate(-1)
 			{
@@ -283,7 +430,7 @@ namespace ng {
 				}
 				return false;
 			}
-					
+
 
 
 
@@ -318,7 +465,7 @@ namespace ng {
 
 
 			inline std::vector<BrushPoly<T>> primitives_org_copy() const { return m_temp_org_prims; }
-			
+
 			inline void AddFacePlane(const BrushFace<T>& plane)
 				//	inline void AddFacePlane( BrushFace<T> plane)
 			{
@@ -326,14 +473,33 @@ namespace ng {
 				buildFaces();
 
 			}
-			
+
+			// Berechnet die UV aller Polygone neu (z.B. wenn die Texturgroessen beim
+			// Erzeugen der Brushes noch nicht bekannt waren). Nur VOR dem CSG gueltig,
+			// weil danach Polygon i nicht mehr zu Flaeche i gehoert.
+			// Braucht GetUVSettings().texSize.
+			inline void ApplyUVs()
+			{
+				const UVSettings& cfg = GetUVSettings();
+				const size_t n = std::min(m_faces.size(), m_prims.size());
+
+				for (size_t i = 0; i < n; ++i)
+				{
+					int w = 64, h = 64;
+					if (cfg.texSize) cfg.texSize(m_faces[i].texture(), w, h);
+					ApplyFaceUV(m_prims[i], m_faces[i], w, h, cfg.flipV, cfg.normalizeOrigin);
+				}
+
+				m_temp_org_prims = m_prims;
+			}
+
 			inline void BuildTree() {
 				std::vector<math::RayPlaneLine<3, T>> r;
 				m_tree.reset();
 				for (unsigned int i = 0; i < m_faces.size(); i++) r.push_back(m_faces[i]);
 				m_tree.BuildUnion(r);
 			}
-			
+
 
 			inline Brush<T> operator = (Brush<T> brush)
 			{
@@ -342,14 +508,14 @@ namespace ng {
 				m_prims = brush.primitives();
 				std::vector<math::RayPlaneLine<3, T>> fl;
 				for (unsigned int i = 0; i < m_faces.size(); i++) fl.push_back(m_faces[i]);
-						
+
 				m_tree.BuildUnion(fl);
 				return *this;
 			}
-			
 
 
-			
+
+
 
 			inline int classify(math::RayPlaneLine<3, T> plane) {
 				int f = 0;
@@ -405,7 +571,7 @@ namespace ng {
 				return true;
 			}
 
-			
+
 			inline void MakeUnion(Brush<T>& brush, bool strong = true, bool rebuild = true)
 			{
 				//---------------------------------------------------------
@@ -440,12 +606,9 @@ namespace ng {
 				//---------------------------------------------------------
 				for (auto& p : m_prims)
 				{
-
-
 					bool provably_outside = false;
 					for (const auto& face : cutter.m_temp_org_prims)
 					{
-
 						int result = p.classify(face.plane());
 
 						if (result == math::RayPlaneLine<3, T>::FRONT)
@@ -514,10 +677,13 @@ namespace ng {
 
 			long m_aggregate;
 
+
+
 			void buildFaces()
 			{
 				m_prims.clear();
 				bounding::AABBox<3, T>::Reset();
+
 				m_aggregate = -1;
 
 				for (unsigned int i = 0; i < m_faces.size(); i++)
@@ -538,12 +704,25 @@ namespace ng {
 					p.aggregate() = m_faces[i].aggregate();
 					p.textureIndex() = m_faces[i].texture();
 
+					// UV aus den Texturachsen der Flaeche (nach dem Clippen, aus den
+					// Weltpositionen). Nur wenn die Texturgroessen bekannt sind, sonst
+					// spaeter Brush::ApplyUVs() aufrufen.
+					{
+						const UVSettings& cfg = GetUVSettings();
+						if (cfg.texSize)
+						{
+							int w = 64, h = 64;
+							cfg.texSize(m_faces[i].texture(), w, h);
+							ApplyFaceUV(p, m_faces[i], w, h, cfg.flipV, cfg.normalizeOrigin);
+						}
+					}
+
 
 
 					if (m_faces[i].aggregate() == BrushFace<T>::SOLID) p.SetNormalColor();
 					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::WATER) {
 						p.SetNormalColor((T)0.5, (T)0.5, (T)1, (T)0.4);
-						printf("LIQUID\n");
+
 					}
 					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::LAVA)  p.SetNormalColor((T)1, (T)0.5, (T)0.5, (T)0.4);
 					if (m_faces[i].aggregate() & BrushFace<T>::LIQUID && m_faces[i].aggregate() & BrushFace<T>::ACCID) p.SetNormalColor((T)0.5, (T)1, (T)0.5, (T)0.4);
@@ -558,12 +737,15 @@ namespace ng {
 
 
 					m_prims.push_back(p);
+
 				}
 				m_temp_org_prims = m_prims;
 				CheckAggregate();
+				for (const auto& p : m_prims)
+					(*this) += p.verts();
 			}
 
-		
+
 		};
 		template <class T>
 		static inline std::vector < BrushPoly<T>> extract_prims(const std::vector<Brush<T>>& brushs, unsigned long aggregate = BrushFace<T>::SOLID, bool rebuild = false)
@@ -592,7 +774,7 @@ namespace ng {
 	}
 
 
-	
+
 	namespace map::csg {
 
 
@@ -619,14 +801,14 @@ namespace ng {
 					if (!solid_brushs[j].IntersectedByBounds(solid_brushs[i])) continue;
 
 
-					
+
 
 					if (a1 == a2 || (a1 == BrushFace<T>::SOLID && a2 == BrushFace<T>::SOLID ||
 						(a1 & BrushFace<T>::LIQUID && a2 & BrushFace<T>::LIQUID)))
 
 
 					{
-						printf("Nr.1\n");
+
 						solid_brushs[i].MakeUnion(solid_brushs[j], false, rebuild_brusches);
 						solid_brushs[j].MakeUnion(solid_brushs[i], true, rebuild_brusches);
 						continue;
@@ -637,13 +819,13 @@ namespace ng {
 
 						if (a1 == BrushFace<T>::SOLID)
 						{
-							printf("Nr.2\n");
+
 							solid_brushs[j].MakeUnion(solid_brushs[i], false, rebuild_brusches);
 							continue;
 						}
 						if (a2 == BrushFace<T>::SOLID)
-						{	
-							printf("Nr.3\n");
+						{
+
 							solid_brushs[i].MakeUnion(solid_brushs[j], false, rebuild_brusches);
 							continue;
 						}
@@ -658,8 +840,6 @@ namespace ng {
 
 			return solid_brushs;
 		}
-
-
 
 	}
 

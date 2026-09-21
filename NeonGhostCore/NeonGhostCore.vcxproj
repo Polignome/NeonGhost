@@ -152,9 +152,7 @@
     <ClInclude Include="BoundingCircle2D.h" />
     <ClInclude Include="BoundingSphere.h" />
     <ClInclude Include="Brush.h" />
-    <ClInclude Include="BspBuilder.h" />
-    <ClInclude Include="BSPInsert.h" />
-    <ClInclude Include="Bsprenderer.h" />
+    <ClInclude Include="BSP.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraController.h" />
     <ClInclude Include="CameraFrustum.h" />
@@ -162,7 +160,6 @@
     <ClInclude Include="Clipping.h" />
     <ClInclude Include="CRC.h" />
     <ClInclude Include="CSGTree.h" />
-    <ClInclude Include="Floodfill.h" />
     <ClInclude Include="HalfLife.h" />
     <ClInclude Include="Map.h" />
     <ClInclude Include="miniz.h" />
@@ -172,7 +169,7 @@
     <ClInclude Include="miniz_tinfl.h" />
     <ClInclude Include="miniz_zip.h" />
     <ClInclude Include="Parser.h" />
-    <ClInclude Include="Portalgen.h" />
+    <ClInclude Include="PVS.h" />
     <ClInclude Include="SkyBoxGen.h" />
     <ClInclude Include="tiny_obj_loader.h" />
     <ClInclude Include="VFSFileManager.h" />
@@ -228,6 +225,7 @@
     <ClInclude Include="VFSZipFile.h" />
     <ClInclude Include="VFSZipStream.h" />
     <ClInclude Include="VirtualFileSystem.h" />
+    <ClInclude Include="Viscells.h" />
     <ClInclude Include="Visualize.h" />
     <ClInclude Include="Waveformobj.h" />
     <ClInclude Include="WorldSpawn.h" />

@@ -4,7 +4,7 @@
 #include "MathUtils.h"
 #include "Matrix.h"
 #include "RayPlaneLine.h"
-
+#include <array>
 namespace ng {
 	namespace bounding {
 		template <unsigned int N, class T >
@@ -30,6 +30,28 @@ namespace ng {
 			}
 
 			AABBox(const math::Matrix<N, 1, T>& min, const math::Matrix<N, 1, T>& max) :_min(min), _max(max), _cCalculated(false), _firststart(false) {}
+
+
+			inline std::array<ng::math::RayPlaneLine<3, T>, 6> ComputeAABBPlanes()
+			{
+				using Plane = ng::math::RayPlaneLine<3, T>;
+				using Vec3 = ng::math::Matrix<3, 1, T>;
+
+				// RayPlaneLine(origin, vector) -> vector wird beim ersten
+				// Zugriff auf normal() normalisiert, origin muss nur
+				// irgendein Punkt auf der jeweiligen Ebene sein - dafuer
+				// reicht die entsprechende Box-Ecke.
+
+				return
+				{
+					Plane(Min(), Vec3(T(1),  T(0),  T(0))), // +X-Seite bei x = min, Normale zeigt nach +X (Richtung Boxinneres)
+					Plane(Max(), Vec3(T(-1),  T(0),  T(0))), // -X-Seite bei x = max, Normale zeigt nach -X
+					Plane(Min(), Vec3(T(0),  T(1),  T(0))), // +Y-Seite bei y = min
+					Plane(Max(), Vec3(T(0), T(-1),  T(0))), // -Y-Seite bei y = max
+					Plane(Min(), Vec3(T(0),  T(0),  T(1))), // +Z-Seite bei z = min
+					Plane(Max(), Vec3(T(0),  T(0), T(-1)))  // -Z-Seite bei z = max
+				};
+			}
 
 			inline std::vector<std::vector<math::Matrix<3, 1, T>>> Faces() const
 			{
@@ -166,6 +188,11 @@ namespace ng {
 				(*this) += p;
 			}
 
+			inline void Add(const std::vector<math::Matrix<N, 1, T>>& pp) {
+				for (auto p:pp)
+				(*this) += p;
+			}
+
 			inline AABBox& operator + (const T& v) {
 				AABBox b(*this);
 				b.Max() += v;
@@ -194,6 +221,16 @@ namespace ng {
 				return b;
 			}
 
+			inline AABBox& operator + (const std::vector<math::Matrix<N, 1, T>>& vv)
+			{
+				AABBox b(*this);
+				for (auto v:vv)
+				b += v;
+				return b;
+			}
+
+
+
 			inline AABBox& operator +=(const math::Matrix<N, 1, T>& v)		// Add a primitive::Vertex<T> to the end
 			{
 				if (_firststart)
@@ -213,6 +250,27 @@ namespace ng {
 				return *this;
 			}
 
+			inline AABBox& operator +=(const std::vector<math::Matrix<N, 1, T>>& vv)		// Add a primitive::Vertex<T> to the end
+			{
+				for (auto v : vv) {
+					if (_firststart)
+					{
+						Min() = Max() = v;
+						_firststart = false;
+						return *this;
+					}
+
+					if (Min().x() > v.x()) Min().x() = v.x();
+					if (Min().y() > v.y()) Min().y() = v.y();
+					if (Min().z() > v.z()) Min().z() = v.z();
+
+					if (Max().x() < v.x()) Max().x() = v.x();
+					if (Max().y() < v.y()) Max().y() = v.y();
+					if (Max().z() < v.z()) Max().z() = v.z();
+				}
+				return *this;
+			}
+
 			inline AABBox& operator + (const AABBox& a)
 			{
 				 AABBox b(*this);
@@ -221,12 +279,6 @@ namespace ng {
 				return b;
 			}
 
-			inline AABBox& operator + (const std::vector<math::Matrix<N, 1, T>>& p)
-			{
-				AABBox b(*this);
-				b += p;
-				return b;
-			}
 
 			inline AABBox& operator += (const T& v)
 			{
@@ -235,14 +287,6 @@ namespace ng {
 				return (*this);
 			}
 					
-			inline AABBox& operator += (const std::vector<math::Matrix<N, 1, T>>& p)
-			{
-				for (auto v:p)
-				{
-					(*this) += v;
-				}
-				return (*this);
-			}
 
 			inline AABBox& operator +=(const AABBox& b)		// Add a primitive::Vertex<T> to the end
 			{

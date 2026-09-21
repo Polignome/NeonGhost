@@ -11,9 +11,16 @@
 #include "Bounding.h"
 #include "Clipping.h"
 #include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cstring>
+#include <cstdio>
 #include "HZBOcclusion.h"
 #include "Object3D.h"
 #include "Mesh.h"
+#include "BSP.h"
+#include "PVS.h"
+#include "VisCells.h"
 
 namespace ng::renderer::rasterizer {
 
@@ -40,6 +47,14 @@ namespace ng::renderer::rasterizer {
         uint32_t polys_rendered = 0;
         uint32_t polys_culled_by_transform = 0;
         uint32_t objs_culled_by_moc = 0;
+
+        // ---- Welt (RenderWorld: VisCells + PVS) ----
+        uint32_t cells_in_pvs = 0;          // vom PVS als moeglicherweise sichtbar geliefert
+        uint32_t cells_with_geometry = 0;   // davon Zellen, die Polygone enthalten
+        uint32_t cells_frustum_culled = 0;
+        uint32_t cells_culled_by_moc = 0;
+        uint32_t cells_culled_by_hzb = 0;
+        uint32_t cells_rendered = 0;        // tatsaechlich gezeichnete Zellen
     };
 
     template <class T>
@@ -182,7 +197,7 @@ namespace ng::renderer::rasterizer {
 
                     // Sichtbares Dreieck rastern ...
                     m_rasterizer.DrawPolygon(verts2d);
-                    
+
                     //   printf("Poly2d________________________\n");
                     //for (auto v : verts2d) {
                      //   printf("%f %f %f  ->   %f %f \n", v.x(), v.y(), v.z(), v.u(), v.v());
@@ -252,6 +267,219 @@ namespace ng::renderer::rasterizer {
             }
         }
         */
+
+        // ------------------------------------------------------------
+        // RenderWorld
+        //
+        // Zeichnet die Welt aus VisCells + PVS:
+        //   1. Kamerazelle bestimmen, sichtbare Zellen aus dem PVS holen
+        //      (nur bei Zellwechsel neu, sonst aus dem Cache).
+        //   2. Pro Zelle: Frustum-Test gegen die Zell-AABB.
+        //   3. Verbleibende Zellen von VORN nach HINTEN sortieren
+        //      (wichtig fuer MOC/HZB).
+        //   4. Pro Zelle: MOC-/HZB-Test, dann alle Polygone zeichnen.
+        //      Polygone, die in mehreren Zellen stehen, werden pro Frame
+        //      nur einmal gezeichnet.
+        //
+        // bindMaterial(int materialId) wird aufgerufen, bevor ein Polygon mit
+        // geaenderter Material-Id gezeichnet wird (Textur setzen o.ae.).
+        // Statistik: siehe cells_* in RenderStatistics.
+        //
+        // Steht die Kamera in keiner begehbaren Zelle, werden alle Zellen
+        // betrachtet.
+        // ------------------------------------------------------------
+        template <class MaterialBinder>
+        void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+            MaterialBinder&& bindMaterial)
+        {
+            UpdateCameraPos();
+
+            const auto& polys = cells.Polygons();
+            const size_t cellCount = cells.CellCount();
+
+            if (cellCount == 0 || polys.empty())
+                return;
+
+            // Das PVS muss auf DEMSELBEN Baum wie die Zellen gebaut sein
+            // (pvs.Build(cells.Tree())). Sonst sind die Leaf-IDs keine Zellindizes.
+            const bool pvsMatches = pvs.IsBuilt() && pvs.LeafCount() == cellCount;
+
+            if (!pvsMatches)
+            {
+                if (!m_worldWarned)
+                {
+                    printf("[RenderWorld] PVS passt nicht zu den Zellen (PVS-Leaves=%zu, Zellen=%zu). "
+                        "Alle Zellen werden gezeichnet. PVS mit pvs.Build(cells.Tree()) bauen!\n",
+                        (size_t)pvs.LeafCount(), cellCount);
+                    m_worldWarned = true;
+                }
+            }
+            else
+            {
+                m_worldWarned = false;
+            }
+
+            const int32_t cell = pvsMatches ? cells.FindCell(m_camera_pos) : -1;
+
+            // Wurden Zellen/PVS neu gebaut (auch bei gleicher Adresse), Cache verwerfen.
+            const bool dataChanged =
+                m_worldCellsPtr != &cells ||
+                m_worldPvsPtr != &pvs ||
+                m_worldCellCount != cellCount ||
+                m_worldPolyCount != polys.size() ||
+                m_worldPvsMatches != pvsMatches;
+
+            // Sichtbare Zellen nur bei Zell-/Datenwechsel neu holen
+            if (dataChanged || m_worldCell != cell)
+            {
+                if (pvsMatches && pvs.IsActiveLeaf(cell))
+                {
+                    m_worldVisCells = pvs.VisibleLeaves(cell);
+                }
+                else
+                {
+                    m_worldVisCells.resize(cellCount);
+                    std::iota(m_worldVisCells.begin(), m_worldVisCells.end(), int32_t(0));
+                }
+
+                m_worldCellsPtr = &cells;
+                m_worldPvsPtr = &pvs;
+                m_worldCell = cell;
+                m_worldCellCount = cellCount;
+                m_worldPolyCount = polys.size();
+                m_worldPvsMatches = pvsMatches;
+            }
+
+            if (dataChanged ||
+                m_worldBoundsOwner != &cells ||
+                m_worldCellBounds.size() != cellCount ||
+                m_worldPolyStamp.size() != polys.size())
+            {
+                BuildWorldCellBounds(cells);
+            }
+
+            // Zeitstempel fuer die Duplikat-Vermeidung (Polygon in mehreren Zellen)
+            if (++m_worldStampValue == 0)
+            {
+                std::fill(m_worldPolyStamp.begin(), m_worldPolyStamp.end(), 0u);
+                m_worldStampValue = 1;
+            }
+
+            m_statistics.cells_in_pvs += (uint32_t)m_worldVisCells.size();
+
+            if (m_culling_mode & CULL_FRUSTUM)
+                (void)Frustum();   // aktualisiert m_frustum falls noetig
+
+            // ---- Schritt 2: Frustum-Culling pro Zelle ----
+            m_worldCellOrder.clear();
+
+            for (int32_t c : m_worldVisCells)
+            {
+                if (c < 0 || (size_t)c >= cellCount) continue;
+                if (cells.CellPolygons(c).empty()) continue;
+
+                m_statistics.cells_with_geometry++;
+
+                ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
+
+                if (m_culling_mode & CULL_FRUSTUM)
+                {
+                    if (!m_frustum.intersectsAABB(box))
+                    {
+                        m_statistics.cells_frustum_culled++;
+                        continue;
+                    }
+                }
+
+                const auto center = (box.Min() + box.Max()) * static_cast<T>(0.5);
+                const auto d = center - m_camera_pos;
+                m_worldCellOrder.emplace_back(d ^ d, c);
+            }
+
+            // ---- Schritt 3: von vorn nach hinten ----
+            std::sort(m_worldCellOrder.begin(), m_worldCellOrder.end(),
+                [](const auto& a, const auto& b) { return a.first < b.first; });
+
+            // ---- Schritt 4: zeichnen ----
+            bool haveMaterial = false;
+            int lastMaterial = 0;
+
+            for (const auto& entry : m_worldCellOrder)
+            {
+                const int32_t c = entry.second;
+                ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
+
+                if (m_culling_mode & CULL_MOC)
+                {
+                    if (!MOCTestAABBoxVisibility(box))
+                    {
+                        m_statistics.cells_culled_by_moc++;
+                        continue;
+                    }
+                }
+
+                if (m_culling_mode & CULL_HZB)
+                {
+                    if (!HZBTestAABBoxVisibility(box))
+                    {
+                        m_statistics.cells_culled_by_hzb++;
+                        continue;
+                    }
+                }
+
+                m_statistics.cells_rendered++;
+
+                for (uint32_t pi : cells.CellPolygons(c))
+                {
+                    if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                    m_worldPolyStamp[pi] = m_worldStampValue;
+
+                    const auto& poly = polys[pi];
+
+                    m_statistics.polys_in++;
+
+                    std::vector<ng::renderer::rasterizer::ScreenVertex<T>> verts2d =
+                        BringToScreen(poly.verts, poly.plane);
+
+                    if (verts2d.size() < 3) continue;
+
+                    if (!haveMaterial || poly.materialId != lastMaterial)
+                    {
+                        bindMaterial(poly.materialId);
+                        lastMaterial = poly.materialId;
+                        haveMaterial = true;
+                    }
+
+                    m_rasterizer.DrawPolygon(verts2d);
+
+                    // Opake Welt occludiert (wie bei RenderMesh)
+                    if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                        !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                    {
+                        m_rasterizer.DrawOcclusionPolygon(verts2d);
+                    }
+
+                    m_statistics.polys_rendered++;
+                }
+            }
+        }
+
+        // Ohne Material-Callback
+        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs)
+        {
+            RenderWorld(cells, pvs, [](int) {});
+        }
+
+        // Muss aufgerufen werden, wenn VisCells/PVS neu gebaut wurden, ohne dass
+        // sich ihre Adresse geaendert hat.
+        inline void InvalidateWorldCache()
+        {
+            m_worldCellsPtr = nullptr;
+            m_worldPvsPtr = nullptr;
+            m_worldBoundsOwner = nullptr;
+            m_worldCell = -2;
+        }
+
         inline const ng::math::Matrix<4, 4, T>& ProjectionMatrix() const {
             return m_projection_matrix;
 
@@ -318,7 +546,7 @@ namespace ng::renderer::rasterizer {
         inline void SetCamera(const scene::Camera<T>& camera) {
 
             ModelViewMatrix() = camera.ViewMatrix();
-           
+
             ProjectionMatrix() = camera.ProjectionMatrix();
             m_camera_pos = camera.position();
             m_camera = camera;
@@ -504,6 +732,57 @@ namespace ng::renderer::rasterizer {
 
         scene::Camera<T> m_camera;
 
+        // ---- Cache fuer RenderWorld ----
+        const void* m_worldCellsPtr = nullptr;
+        const void* m_worldPvsPtr = nullptr;
+        int32_t m_worldCell = -2;
+        std::vector<int32_t> m_worldVisCells;                       // PVS-Zellen der aktuellen Kamerazelle
+
+        const void* m_worldBoundsOwner = nullptr;
+        std::vector<ng::bounding::AABBox<3, T>> m_worldCellBounds;  // AABB pro Zelle
+        std::vector<uint32_t> m_worldPolyStamp;                     // Duplikat-Vermeidung
+        uint32_t m_worldStampValue = 0;
+        size_t m_worldCellCount = 0;
+        size_t m_worldPolyCount = 0;
+        bool m_worldPvsMatches = false;
+        bool m_worldWarned = false;
+        std::vector<std::pair<T, int32_t>> m_worldCellOrder;        // (Distanz^2, Zelle) pro Frame
+
+
+        // Berechnet die Kameraposition nur neu, wenn sich die View-Matrix geaendert hat
+        // (die nicht-konstante CameraPos() invertiert bei JEDEM Aufruf die Matrix).
+        inline void UpdateCameraPos()
+        {
+            if (m_update_camera_pos)
+            {
+                m_camera_pos = GetCameraPositionFromView(m_model_view_matrix);
+                m_update_camera_pos = false;
+            }
+        }
+
+        void BuildWorldCellBounds(const ng::bsp::VisCells<T>& cells)
+        {
+            const auto& polys = cells.Polygons();
+
+            m_worldCellBounds.assign(cells.CellCount(), ng::bounding::AABBox<3, T>());
+
+            for (size_t c = 0; c < cells.CellCount(); ++c)
+            {
+                auto& b = m_worldCellBounds[c];
+                b.Reset();
+
+                for (uint32_t pi : cells.CellPolygons((int32_t)c))
+                {
+                    auto verts = polys[pi].verts;   // Kopie: operator+= nimmt evtl. keine const&
+                    b += verts;
+                }
+            }
+
+            m_worldPolyStamp.assign(polys.size(), 0u);
+            m_worldStampValue = 0;
+            m_worldBoundsOwner = &cells;
+        }
+
 
         inline void Project(std::vector<ng::renderer::rasterizer::ScreenVertex<T>>& verts2d) {
             for (auto& v : verts2d)
@@ -580,10 +859,21 @@ namespace ng::renderer::rasterizer {
             std::vector <ng::renderer::rasterizer::ScreenVertex<T>> verts2d;
             if (m_culling_mode & CULL_BACKFACE || m_culling_mode & CULL_FRONTFACE)
             {
-                int res = plane.classify(CameraPos());
-                if (m_culling_mode & CULL_BACKFACE && res == math::RayPlaneLine<3, T>::BACK) return std::vector <ng::renderer::rasterizer::ScreenVertex<T>>(); else
-                    if (m_culling_mode & CULL_FRONTFACE && res == math::RayPlaneLine<3, T>::FRONT) return std::vector <ng::renderer::rasterizer::ScreenVertex<T>>();
-                m_statistics.polys_face_culled++;
+                // GEAENDERT: kein CameraPos() mehr (das invertiert bei jedem Aufruf die
+                // View-Matrix), sondern die gecachte Position.
+                UpdateCameraPos();
+                int res = plane.classify(m_camera_pos);
+
+                // GEAENDERT: der Zaehler stand vorher ausserhalb der Bedingungen und
+                // zaehlte jedes Polygon als "face culled".
+                if (m_culling_mode & CULL_BACKFACE && res == math::RayPlaneLine<3, T>::BACK) {
+                    m_statistics.polys_face_culled++;
+                    return std::vector <ng::renderer::rasterizer::ScreenVertex<T>>();
+                }
+                if (m_culling_mode & CULL_FRONTFACE && res == math::RayPlaneLine<3, T>::FRONT) {
+                    m_statistics.polys_face_culled++;
+                    return std::vector <ng::renderer::rasterizer::ScreenVertex<T>>();
+                }
             }
 
 
@@ -637,7 +927,7 @@ namespace ng::renderer::rasterizer {
                 m_frustum = Frustum();
 
                 int res = m_frustum.classify(vv);
-                
+
 
                 if (res == ng::math::RayPlaneLine<3, T>::SPANNING) {
                     if (vv.size() == 2)
@@ -647,14 +937,14 @@ namespace ng::renderer::rasterizer {
                         }
                     }
                     else {
-                        
+
                         vv = ng::geometry::ClipByFrustum(vv, m_frustum);
-                        
+
 
                         m_statistics.polys_frustum_culled++;
                     }
                 }
-               
+
 
             }
 
@@ -683,4 +973,3 @@ namespace ng::renderer::rasterizer {
 
     };
 }
-

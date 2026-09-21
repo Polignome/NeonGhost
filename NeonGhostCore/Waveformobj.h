@@ -5,7 +5,7 @@
 #include <vector>
 #include <cstdint>
 #include "ResourceManager.h"
-#include "BspBuilder.h"
+#include "Bsp.h"
 
 // Vorwaertsdeklarationen fuer tinyxml2 (nur Zeiger im Interface,
 // tinyxml2.h muss hier nicht included werden).

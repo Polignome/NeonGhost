@@ -330,7 +330,7 @@
     <ClInclude Include="miniz_zip.h">
       <Filter>Headerdateien\Io\VFS\ZIP</Filter>
     </ClInclude>
-    <ClInclude Include="BspBuilder.h">
+    <ClInclude Include="BSP.h">
       <Filter>Headerdateien\Spatial</Filter>
     </ClInclude>
     <ClInclude Include="Waveformobj.h">
@@ -339,16 +339,7 @@
     <ClInclude Include="tiny_obj_loader.h">
       <Filter>Headerdateien\Tools</Filter>
     </ClInclude>
-    <ClInclude Include="Bsprenderer.h">
-      <Filter>Headerdateien\Renderer\Rasterizer</Filter>
-    </ClInclude>
-    <ClInclude Include="Portalgen.h">
-      <Filter>Headerdateien\Spatial</Filter>
-    </ClInclude>
     <ClInclude Include="SkyBoxGen.h">
-      <Filter>Headerdateien\Spatial</Filter>
-    </ClInclude>
-    <ClInclude Include="Floodfill.h">
       <Filter>Headerdateien\Spatial</Filter>
     </ClInclude>
     <ClInclude Include="Parser.h">
@@ -369,7 +360,10 @@
     <ClInclude Include="CSGTree.h">
       <Filter>Headerdateien\Map</Filter>
     </ClInclude>
-    <ClInclude Include="BSPInsert.h">
+    <ClInclude Include="PVS.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="Viscells.h">
       <Filter>Headerdateien\Spatial</Filter>
     </ClInclude>
   </ItemGroup>

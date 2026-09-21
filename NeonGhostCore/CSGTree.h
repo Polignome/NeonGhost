@@ -96,13 +96,16 @@ namespace ng {
 						{
 							ng::map::BrushPoly<T> f, b;
 							ng::geometry::SplitByPlane(p.verts(), m_plane, f.verts(), b.verts());
-							
+
 							f.aggregate() = p.aggregate();
 							b.aggregate() = p.aggregate();
-						
+
 							f.textureIndex() = p.textureIndex();
 							b.textureIndex() = p.textureIndex();
 
+							f.plane() = p.plane();
+							b.plane() = p.plane();
+							
 							if (f.verts().size() > 2 && f.area() > math::EPSILON<T>) fl.push_back(f);
 							if (b.verts().size() > 2 && b.area() > math::EPSILON<T>) bl.push_back(b);
 						}
