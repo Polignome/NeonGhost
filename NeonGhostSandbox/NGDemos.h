@@ -50,6 +50,10 @@ static std::vector<float> m_out_cellscount;
 
 static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
+static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
+static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
+static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
+static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
 
 
 inline void Render2DWindow(bool& m_software_renderer_visible)
@@ -1311,7 +1315,11 @@ inline void ToggleBit(uint32_t& value, uint32_t bit)
 inline void SomeDebugStuff() {
     {
         int width = 400;
-        float green = 0.25f;
+        float green = 1;
+        ImVec2 start = ImGui::GetCursorScreenPos();
+        start.x -= 20;
+        start.y -= 20;
+        int help;
         if (ImGui::BeginChild(0x1200ff)) {
             ng::renderer::rasterizer::RenderStatistics stat = m_render_pipeline_3d.GetStatistics();
             ImGui::PlotLines("##FPS Counter", m_fps_count.data(), (int)m_out_polycount.size(), 0, "FPS", 0.0f, m_max_fps, ImVec2((float)width, 40));
@@ -1397,8 +1405,19 @@ inline void SomeDebugStuff() {
                 ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i %3.2f%%", stat.polys_rendered, pro);
             }
             else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
+            help= ImGui::GetCursorScreenPos().y;
             ImGui::EndChild();
         }
+        ImVec2 end = ImGui::GetItemRectSize();
+        end.y = help+ 20;
+        end.x += start.x+20;
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            start,
+            end,
+            IM_COL32(30, 30, 30, 180),
+            5.0f
+        );
+    
     }
 }
 
@@ -1505,6 +1524,10 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     float dt = std::chrono::duration<float>(now - lastTime).count();
     dt = std::min(dt, 0.05f); // Cap gegen Spiral-of-Death bei Lags
     lastTime = now;
+
+
+
+
 
 
     for (auto& m : m_mesh_obj) {

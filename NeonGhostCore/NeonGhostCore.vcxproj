@@ -227,6 +227,7 @@
     <ClInclude Include="VirtualFileSystem.h" />
     <ClInclude Include="Viscells.h" />
     <ClInclude Include="Visualize.h" />
+    <ClInclude Include="Wad3File.h" />
     <ClInclude Include="Waveformobj.h" />
     <ClInclude Include="WorldSpawn.h" />
     <ClInclude Include="ZBuffer.h" />
@@ -263,6 +264,7 @@
     <ClCompile Include="VFSVirtualFileSystem.cpp" />
     <ClCompile Include="VFSZipDrive.cpp" />
     <ClCompile Include="VFSZipStream.cpp" />
+    <ClCompile Include="Wad3File.cpp" />
     <ClCompile Include="Waveformobj.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

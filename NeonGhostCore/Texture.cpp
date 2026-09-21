@@ -98,11 +98,11 @@ bool _Texture::Load(size_t size, void* buffer)
     );
 
     if (!pixels) {
-        printf("Pixels = 0\n");
+        
         return false;
     }
     Resize(width, height);
-    printf("Size %i %i\n", width, height);
+    
 
     memcpy(
         GetRawBuffer(),
@@ -179,6 +179,19 @@ namespace ng {
             return Add(resname, img, attrib);
 
         }
+
+        uint64_t TextureResourceManager::LoadRawTextureFromMemory(std::string resname, unsigned char* buffer, unsigned long width, unsigned long height, bool keep_source, unsigned long attrib)
+        {
+            
+            if (width* height<=0 ||buffer == nullptr) return Add(resname, nullptr, attrib);
+            ng::renderer::buffers::PixelBufferRGBA raw(width, height);
+            memmove(raw.GetRawBuffer(), buffer, raw.Size());
+            _Texture* img = new _Texture(raw);
+            
+            return Add(resname, img, attrib);
+
+        }
+
 
 
         uint64_t TextureResourceManager::Add(std::string resname, renderer::gfx::_Texture* ptr, unsigned long attrib) {

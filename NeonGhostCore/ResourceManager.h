@@ -997,7 +997,7 @@ namespace ng {
 				/*****************************************************/
 				inline void _dec(ResPtrContainer<T>* t, bool deletebyzero)
 				{
-
+					if (t == nullptr) return;
 					typename std::map<ResPtrContainer<T>*, TResInfo>::iterator it = m_uses.find(t);
 					assert(it != m_uses.end());
 					it->second.m_used--;

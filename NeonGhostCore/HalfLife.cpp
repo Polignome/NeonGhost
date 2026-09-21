@@ -209,7 +209,7 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string> &str, unsign
 			s = RemoveChars(s, "\"");
 			s2 = RemoveChars(s2, "\"");
 			
-			printf("%s %s\n", s.c_str(), s2.c_str());
+			
 
 			if (s == "classname" && s2 == "worldspawn") SetActiveEntityName("world");
 			else if (s == "classname") SetActiveEntityName(s2);

@@ -33,6 +33,8 @@
 NG_BIND_MANAGER
 
 
+
+
 #define NG_USE_STATIC_MESH_ONLY
 
 const size_t MAX_POLY_COUNTS = 100;   
@@ -42,10 +44,6 @@ const size_t MAX_POLY_COUNTS = 100;
 
 
 static ng::tools::FPSCounter m_fps_counter;
-static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
-static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
-static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
-static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
 
 
 
@@ -139,47 +137,17 @@ inline void RenderNode(const std::shared_ptr<ng::bsp::BSPNode<NG_MATH_FLOAT>> &n
 
 }
 
-inline void RenderBsp( ng::bsp::BSPTree<NG_MATH_FLOAT> tree) {
-    
-    
-   /*
-    if (!m_pvs.IsActiveLeaf(leaf_id)) {
-        RenderNode(tree.GetRoot());
-        return;
-    }
-
-    auto leafs=m_pvs.VisibleLeaves(leaf_id);
-    m_num_visible_leafs = leafs.size();
-    for (auto lid : leafs) {
-        auto leaf=m_bsp.GetLeaves()[lid];
-         
-        for (auto p : leaf->GetPolygons()) {
-            m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
-            m_render_pipeline_3d.RenderPolygon(p.verts);
-        }
-    }
-    */
-    int32_t cell = m_cells.FindCell(m_camera.position());
-    std::vector<uint32_t> list;
-    m_cells.CollectVisiblePolygons(m_pvs, cell, list);
-     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
-    const auto& polys = m_cells.Polygons();
-
-    for (uint32_t idx : list)
-    {
-        const ng::bsp::BSPPolygon<NG_MATH_FLOAT>& p = polys[idx];
-        
-        m_render_pipeline_3d.RenderPolygon(p.verts);
-
-    }
-}
 
 inline void Render() {
     static double totalTime = 0.0;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_old_pos;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_pos;
+    static ng::math::Matrix<3, 1, NG_MATH_FLOAT> radius(160.0 * 10, 360.0 * 10, 360.0* 10);
 
-   // static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<double>>();
+    double deltaTime = ImGui::GetIO().DeltaTime;
+    totalTime += deltaTime;                      // <-- NEU: aufaddieren statt Delta direkt nutzen
+
+    static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
       
     // erwartet: ≈ (0,0,0,1)
 
@@ -189,21 +157,24 @@ inline void Render() {
         mgr.SetSize(m_rasterizer_3d.Width(), m_rasterizer_3d.Height());
         mgr.BindColor(m_rasterizer_3d.GetColorBuffer().GetRawBuffer());
         mgr.BindDepth(m_rasterizer_3d.GetDepthBuffer().GetRawBuffer());
-        
+        m_cam_old_pos =  m_camera.position();
     }
 	
 
     {
         m_cam_pos = m_camera.position();
-        auto delta = m_cam_pos - m_cam_old_pos;  m_cam_old_pos= m_cam_pos;
+
+        const auto delta =
+            m_cam_pos - m_cam_old_pos;
+
         snow->SetCameraDelta(delta);
         snow->SetCamera(m_camera.forward(), m_camera.up());
-        snow->SetFOV(ng::math::radiansToDegrees(m_camera.fov()));
-        snow->SetAspect( m_camera.aspect());
+        snow->SetFOV(
+            ng::math::radiansToDegrees(m_camera.fov()));
+        snow->SetAspect(
+            m_camera.aspect());
     }
     
-
-
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
     m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
@@ -215,7 +186,7 @@ inline void Render() {
 
     ng::renderer::rasterizer::TextureView textview;
     textview.texture = testtexture;
-    
+
     m_rasterizer_3d.State().diffuseTex = &textview;
 
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
@@ -239,9 +210,7 @@ inline void Render() {
         });
     m_render_pipeline_3d.End();
         
-    double deltaTime = ImGui::GetIO().DeltaTime;
-    totalTime += deltaTime;                      // <-- NEU: aufaddieren statt Delta direkt nutzen
-
+   
     if (m_use_after_fx )mgr.Apply(totalTime);
 
   
@@ -381,105 +350,29 @@ void InitStuff() {
     m_camera.LookAt(ng::math::Matrix<3, 1, NG_MATH_FLOAT>(0, 0, 0));
     
 
-    /*
-    std::string path = ng::tools::abs_exe_directory() + "\\..\\..\\";
-    m_render_pipeline_3d.PreSortObjs(true);
-
-    {
-        std::wstring wpath(path.begin(), path.end());
-
-        auto drive =
-            std::make_shared<ng::io::vfs::DirectoryDrive>(
-                std::filesystem::path(path));
-
-        ng::io::vfs::VFSFileManager::Mount(
-            "/",
-            drive,
-            0,
-            "CDrive");
-    }
-
-
-    {
-
-        auto drive =
-            std::make_shared<ng::io::vfs::ZipDrive>(
-                std::filesystem::path(path + "\\res\\texture.zip"));
-
-        ng::io::vfs::VFSFileManager::Mount(
-            "/",
-            drive,
-            0,
-            "ZipDrive");
-    }
-    */
-    /*
-
-    {
-
-        int num = 200;
-        double size = 40;
-        double scale = 1;
-        double h = ((double)(size / 2) / (double)RAND_MAX);
-        double h2 = ((double)6 / (double)RAND_MAX);
-        double h3 = ((double)3 / (double)RAND_MAX);
-
-
-        std::vector<ng::math::Matrix<3, 1, NG_MATH_FLOAT>> vv =
-            DistributeObjectsInCube<NG_MATH_FLOAT>(800, 4);
-
-        for (auto v : vv) {
-            ng::renderer::objects::Mesh<NG_MATH_FLOAT> mesh;
-
-            double ran = std::rand();
-
-            int h = (int)(h2 * ran);
-            //h = 1;
-            switch (h)
-            {
-            case 1: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateCube(size); break;
-            case 2: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateSphere(size, 24, 16); break;
-            case 3: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateCone(size / 2, size, 20); break;
-            case 4: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateCylinder(size / 2, size, 20); break;
-            case 5: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreatePlane(size, size, 10, 10); break;
-            default: mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateCube(size); break;
-            }
-
-
-            mesh.SetPosition(v);
-            mesh.ComputeSmoothNormals();
-            mesh.Update(0);
-            mesh.EnableLOD(m_use_lod);
-            mesh.BuildLODs({
-              { 20.0f, 0.90f },
-              { 40.0f, 0.80f },
-              { 80.0f, 0.70f }
-                });
-            mesh.ComputeFlatNormals();
-            m_mesh_obj.push_back(mesh);
-
-        }
-
-    }
-    
-    */
-    /*
-    auto  mesh = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreatePlane(1000,1000);
-    
-    mesh.ComputeSmoothNormals();
-    mesh.Update(0);
-    mesh.EnableLOD(m_use_lod);
-    mesh.BuildLODs({
-      { 20.0f, 0.90f },
-      { 40.0f, 0.80f },
-      { 80.0f, 0.70f }
-        });
-    mesh.ComputeFlatNormals();
-    m_mesh_obj.push_back(mesh);
-
-    */
-
 }
+
+
+bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::string& name) {
+
+    printf("[WAD] Load Texture %s", name.c_str());
+    if (ng::resource::TextureResourceManager::IsResourceInManager(name)) return true;
+    
+    try {
+
+        ng::map::texture::Wad3File::Texture texture = wad.GetTexture(name);
+        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, (unsigned char*)texture.pixels.data(), texture.width, texture.height);
+        printf("...OK\n");
+    }
+    catch (const std::runtime_error& error) {
+        std::string help = error.what();
+        printf("...ERROR\n");
+        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, (unsigned char*)nullptr,0,0);
+
+    }
+    return true;
+}
+
 
 
 int main(int argc, char** argv) {
@@ -681,17 +574,44 @@ int main(int argc, char** argv) {
                 hl_map.load(filename);
                 ng::map::Data<NG_MATH_FLOAT> data;
                 data = hl_map;                
+
+
+
+
+                ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();;
+
+
+                for (auto n : data.m_texture_names) {
+                    
+                    ConvertfromWad(m_wad_file, n);
+                }
+
+
+
+
+
+
+
+
+
                 auto brush=data.ExtractBrushes();
                 brush = ng::map::csg::MakeUnion(brush);
 
                 std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
+                auto tnames = m_wad_file.GetTextureNames();
 
                 for (auto b : brush) {
                     auto h=b.primitives();
                     for (auto p : h) {
+
+                    
+                        
                         for (size_t i = 1; i < p.verts().size() - 1; ++i)
                         {
-                            ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly= ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1]);
+                          
+                            
+                            ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly= ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1],-1);
+                            
                             polys.push_back(poly);
                         }
                     }
@@ -707,7 +627,8 @@ int main(int argc, char** argv) {
 
 
                 auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
-                m_bsp.RemoveReachedPolygons(reached);            // Polygone in allen erreichten Leaves loeschen
+                m_bsp.RemoveReachedPolygons(reached);     // Polygone in allen erreichten Leaves loeschen
+                
                 auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
            
                 
@@ -737,7 +658,7 @@ int main(int argc, char** argv) {
     }
 
 
-
+    ng::resource::Manager::Flush();
 
 
 	ShutdownImGui();

@@ -449,8 +449,9 @@ namespace ng::renderer::rasterizer {
                         lastMaterial = poly.materialId;
                         haveMaterial = true;
                     }
-
-                    m_rasterizer.DrawPolygon(verts2d);
+                    
+                   
+                     m_rasterizer.DrawPolygon(verts2d);
 
                     // Opake Welt occludiert (wie bei RenderMesh)
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&

@@ -2,7 +2,7 @@
 #include <map>
 #include "Parser.h"
 #include "WorldSpawn.h"
-//#include "Wad3File.h"
+#include "Wad3File.h"
 
 #define DDG_MAP_ID "DarkGhostMap"
 
@@ -62,12 +62,13 @@ namespace ng {
 			std::map<int32_t, std::string> m_id_text;
 			std::vector <std::string> m_texture_names;
 
-		//	Wad3File GetTextureWad() { return m_wad; }
+			ng::map::texture::Wad3File GetTextureWad() { return m_wad; }
 
 
 		private:
 			WorldSpawn<T> m_worldspawn;
-//			Wad3File m_wad;
+			ng::map::texture::Wad3File m_wad;
+		
 
 			std::map<std::string, int32_t> m_texturename_index;
 
@@ -80,7 +81,7 @@ namespace ng {
 					{
 
 						if (p.name == "wad") {
-							//m_wad = Wad3File(p.values[0]);
+							m_wad = texture::Wad3File(p.values[0]);
 						}
 
 

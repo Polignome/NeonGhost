@@ -5,7 +5,7 @@
 #include "RayPlaneLine.h"
 #include "Clipping.h"
 #include "AABBox.h"
-
+#include "Texture.h"
 #include <vector>
 #include <memory>
 #include <limits>
@@ -60,6 +60,7 @@ namespace ng
             uint32_t objectId = 0;
             uint32_t flags = 0;
             int volumeId = -1;
+            ng::renderer::gfx::Texture texture;
 
             static BSPPolygon FromTriangle(
                 const Vertex& v0, const Vertex& v1, const Vertex& v2,
@@ -72,6 +73,8 @@ namespace ng
                 poly.objectId = objectId;
                 return poly;
             }
+
+    
         };
 
         // ------------------------------------------------------------
@@ -113,7 +116,7 @@ namespace ng
 
             frontOut.plane = poly.plane;
             backOut.plane = poly.plane;
-
+            frontOut.texture = poly.texture;
             frontOut.materialId = backOut.materialId = poly.materialId;
             frontOut.objectId = backOut.objectId = poly.objectId;
             frontOut.flags = backOut.flags = poly.flags;

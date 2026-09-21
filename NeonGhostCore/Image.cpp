@@ -76,11 +76,11 @@ bool _Image::Load(const std::string& filename)
     );
 
     if (!pixels) {
-        printf("Pixels = 0\n");
+        
         return false;
     }
     Resize(width, height);
-    printf("Size %i %i\n", width, height);
+    
 
     memcpy(
         GetRawBuffer(),
@@ -108,11 +108,11 @@ bool _Image::Load(size_t size,void* buffer)
     );
 
     if (!pixels) {
-        printf("Pixels = 0\n");
+        
         return false;
     }
     Resize(width, height);
-    printf("Size %i %i\n", width, height);
+    
 
     memcpy(
         GetRawBuffer(),

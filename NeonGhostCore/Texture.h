@@ -59,6 +59,7 @@ namespace ng {
 
             static uint64_t LoadTextureFromFile(std::string resname, std::string filename, bool keep_source = false, unsigned long attrib = DELETE_WHEN_UNUSED);
             static uint64_t LoadTextureFromMemory(std::string resname, unsigned char* buffer, unsigned long buffer_size, bool keep_source = false, unsigned long attrib = DELETE_WHEN_UNUSED);
+            static uint64_t LoadRawTextureFromMemory(std::string resname, unsigned char* buffer, unsigned long width, unsigned long height, bool keep_source = false, unsigned long attrib = DELETE_WHEN_UNUSED);
 
         protected:
             static uint64_t Add(std::string resname, renderer::gfx::_Texture* ptr, unsigned long attrib = DELETE_WHEN_UNUSED);

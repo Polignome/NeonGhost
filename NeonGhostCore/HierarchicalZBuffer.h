@@ -40,7 +40,7 @@ namespace ng {
 
 					for (int level = 0; level < n_num_mip_levels; level++)
 					{
-						printf("Init MipMap level %i\n", level);
+						
 						m_mip_levels.push_back(ZBuffer<T>((size_t)w, (size_t)h));
 						w = std::max(1, w >> 1);
 						h = std::max(1, h >> 1);
