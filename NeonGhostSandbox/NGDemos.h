@@ -1322,92 +1322,98 @@ inline void SomeDebugStuff() {
         int help;
         if (ImGui::BeginChild(0x1200ff)) {
             ng::renderer::rasterizer::RenderStatistics stat = m_render_pipeline_3d.GetStatistics();
-            ImGui::PlotLines("##FPS Counter", m_fps_count.data(), (int)m_out_polycount.size(), 0, "FPS", 0.0f, m_max_fps, ImVec2((float)width, 40));
-            ImGui::PlotLines("##Polygons In", m_in_polycount.data(), (int)m_in_polycount.size(), 0, "Polygons in", 0.0f, m_max_in_polys, ImVec2((float)width, 40));
-            ImGui::PlotLines("##Polygons Out", m_out_polycount.data(), (int)m_out_polycount.size(), 0, "Polygons out", 0.0f, m_max_out_polys, ImVec2((float)width, 40));
-            ImGui::PlotLines("##Cells", m_out_cellscount.data(), (int)m_out_cellscount.size(), 0, "Cells out", 0.0f, m_max_out_cells, ImVec2((float)width, 40));
-
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Width....................................: %i", m_rasterizer_3d.Width());
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Height...................................: %i", m_rasterizer_3d.Height());
+            if (ImGui::CollapsingHeader("Visual")) {
             
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Leaf in Bsp..............................: %i", m_num_bsp_leafs);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells....................................: %i", stat.cells_in_pvs);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells with Geometry......................: %i", stat.cells_with_geometry);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells Frustum culled.....................: %i", stat.cells_frustum_culled);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells culled by MOC......................: %i", stat.cells_culled_by_moc);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells culled by HZB......................: %i", stat.cells_culled_by_hzb);
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells rendert............................: %i", stat.cells_rendered);
-            ImGui::Separator();
+                ImGui::PlotLines("##FPS Counter", m_fps_count.data(), (int)m_out_polycount.size(), 0, "FPS", 0.0f, m_max_fps, ImVec2((float)width, 40));
+                ImGui::PlotLines("##Polygons In", m_in_polycount.data(), (int)m_in_polycount.size(), 0, "Polygons in", 0.0f, m_max_in_polys, ImVec2((float)width, 40));
+                ImGui::PlotLines("##Polygons Out", m_out_polycount.data(), (int)m_out_polycount.size(), 0, "Polygons out", 0.0f, m_max_out_polys, ImVec2((float)width, 40));
+                ImGui::PlotLines("##Cells", m_out_cellscount.data(), (int)m_out_cellscount.size(), 0, "Cells out", 0.0f, m_max_out_cells, ImVec2((float)width, 40));
+            }
 
-
-
-
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects in...............................: %i", stat.objs_in);
-
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_HZB)
-
+            if (ImGui::CollapsingHeader("Infio")) 
             {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by HZB....................: %i", stat.objs_culled_by_hzb);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Width....................................: %i", m_rasterizer_3d.Width());
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Height...................................: %i", m_rasterizer_3d.Height());
 
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Leaf in Bsp..............................: %i", m_num_bsp_leafs);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells....................................: %i", stat.cells_in_pvs);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells with Geometry......................: %i", stat.cells_with_geometry);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells Frustum culled.....................: %i", stat.cells_frustum_culled);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells culled by MOC......................: %i", stat.cells_culled_by_moc);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells culled by HZB......................: %i", stat.cells_culled_by_hzb);
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Cells rendert............................: %i", stat.cells_rendered);
+                ImGui::Separator();
+
+
+
+
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects in...............................: %i", stat.objs_in);
+
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_HZB)
+
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by HZB....................: %i", stat.objs_culled_by_hzb);
+
+                }
+
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by HZB.....................: %i OFF", stat.objs_culled_by_hzb);
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRUSTUM)
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by Frustum................: %i", stat.objs_frustum_culled);
+                }
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by Frustum................: %i OFF", stat.objs_frustum_culled);
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_MOC)
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by MaskedOcclusionBuffer..: %i", stat.objs_culled_by_moc);
+
+
+                }
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by MaskedOcclusionBuffer..: %i OFF", stat.objs_culled_by_moc);
+
+
+
+
+
+                ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons in..............................: %i", stat.polys_in);
+
+
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_BACKFACE || m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRONTFACE)
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons Faceculled......................: %i %s %s", stat.polys_face_culled,
+                        (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRONTFACE) ? "FRONT" : "",
+                        (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_BACKFACE) ? "BACK" : "");
+
+                }
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons Faceculled......................: %i", stat.polys_face_culled);
+
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRUSTUM)
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons culled by Frustum...............: %i", stat.polys_frustum_culled);
+
+                }
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons culled by Frustum................: %i OFF", stat.polys_frustum_culled);;
+
+                if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_TRANSFORM)
+                {
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons transformculled.................: %i", stat.polys_culled_by_transform);
+                }
+                else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons transformculled..................: %i OFF", stat.polys_culled_by_transform);
+
+                if (stat.polys_in > 0) {
+                    double pro = (100.0 / (double)stat.polys_in) * (double)stat.polys_rendered;
+                    ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i %3.2f%%", stat.polys_rendered, pro);
+                }
+                else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
             }
-
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by HZB.....................: %i OFF", stat.objs_culled_by_hzb);
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRUSTUM)
-            {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by Frustum................: %i", stat.objs_frustum_culled);
-            }
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by Frustum................: %i OFF", stat.objs_frustum_culled);
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_MOC)
-            {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Objects culled by MaskedOcclusionBuffer..: %i", stat.objs_culled_by_moc);
-
-
-            }
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Objects culled by MaskedOcclusionBuffer..: %i OFF", stat.objs_culled_by_moc);
-
-
-
-
-
-            ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons in..............................: %i", stat.polys_in);
-
-
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_BACKFACE || m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRONTFACE)
-            {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons Faceculled......................: %i %s %s", stat.polys_face_culled,
-                    (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRONTFACE) ? "FRONT" : "",
-                    (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_BACKFACE) ? "BACK" : "");
-
-            }
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons Faceculled......................: %i", stat.polys_face_culled);
-
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_FRUSTUM)
-            {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons culled by Frustum...............: %i", stat.polys_frustum_culled);
-
-            }
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons culled by Frustum................: %i OFF", stat.polys_frustum_culled);;
-
-            if (m_render_pipeline_3d.GetCullingMode() & ng::renderer::rasterizer::CULL_TRANSFORM)
-            {
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons transformculled.................: %i", stat.polys_culled_by_transform);
-            }
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "Polygons transformculled..................: %i OFF", stat.polys_culled_by_transform);
-
-            if (stat.polys_in > 0) {
-                double pro = (100.0 / (double)stat.polys_in) * (double)stat.polys_rendered;
-                ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i %3.2f%%", stat.polys_rendered, pro);
-            }
-            else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
-            help= ImGui::GetCursorScreenPos().y;
+            help = ImGui::GetCursorScreenPos().y;
             ImGui::EndChild();
-        }
+            }
         ImVec2 end = ImGui::GetItemRectSize();
         end.y = help+ 20;
         end.x += start.x+20;
