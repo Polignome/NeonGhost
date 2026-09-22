@@ -744,7 +744,7 @@ namespace ng {
 					// 1. Namen hashen
 					// ------------------------------------------------------------
 
-					printf("ADD RESOURCE\n manager = %s\nname  =%s\ntype   =%s\n", GetName().c_str(), name.c_str(), typeid(T).name());
+//					printf("ADD RESOURCE\n manager = %s\nname  =%s\ntype   =%s\n", GetName().c_str(), name.c_str(), typeid(T).name());
 
 					const uint64_t hash_code =
 						tools::CRC::CRC64(name.c_str());

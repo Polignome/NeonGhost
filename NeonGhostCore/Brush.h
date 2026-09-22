@@ -30,18 +30,18 @@ namespace ng {
 
 
 			enum {
-				ALL = -1,
-				SOLID = 0,
-				LIQUID = 1 << 0,
-				WATER = 1 << 1,
-				LAVA = 1 << 2,
-				ACCID = 1 << 3,
-				GLASS = 1 << 4,
-				GAS = 1 << 5,
-				TRANS = 1 << 6,
-				SOLID_NO_SPLITTER = 1 << 8,
-				EMPTY = 1 << 9,
-				WRONG = 1 << 10
+				NONE = 0,
+				SOLID = 1<<1,
+				LIQUID = 1 << 2,
+				WATER = 1 << 3,
+				LAVA = 1 << 4,
+				ACCID = 1 << 5,
+				GLASS = 1 << 6,
+				GAS = 1 << 7,
+				TRANS = 1 << 8,
+				SOLID_NO_SPLITTER = 1 << 9,
+				EMPTY = 1 << 10,
+				WRONG = 1 << 11
 			};
 
 
@@ -749,22 +749,16 @@ namespace ng {
 
 		};
 		template <class T>
-		static inline std::vector < BrushPoly<T>> extract_prims(const std::vector<Brush<T>>& brushs, unsigned long aggregate = BrushFace<T>::SOLID, bool rebuild = false)
+		static inline std::vector < BrushPoly<T>> extract_prims(const std::vector<Brush<T>>& brushs, unsigned long aggregate = BrushFace<T>::SOLID)
 		{
 			std::vector < BrushPoly<T>> prims;
 
 			for (auto i : brushs)
 			{
-				if (rebuild) {
-					i.Rebuild();
-
-				}
 				for (auto j : i.primitives())
 				{
-
-					if (j.aggregate() == aggregate || aggregate == BrushFace<T>::ALL)
+					if (j.aggregate() & aggregate)
 					{
-						j.userFlags() = 0;
 						prims.push_back(j);
 					}
 				}

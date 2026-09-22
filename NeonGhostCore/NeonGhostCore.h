@@ -12,6 +12,7 @@
 #include "Camera.h"
 //controller
 #include "CameraController.h"
+#include "PlayerController.h"
 
 //buffer
 #include "PixelBuffer.h"

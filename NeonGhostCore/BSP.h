@@ -5,7 +5,7 @@
 #include "RayPlaneLine.h"
 #include "Clipping.h"
 #include "AABBox.h"
-#include "Texture.h"
+
 #include <vector>
 #include <memory>
 #include <limits>
@@ -33,14 +33,18 @@ namespace ng
             SOLID = 1 << 3,
             EMPTY = 1 << 4,
             INTOTHEVOID = 1 << 5,
-            HAS_ILLEGAL_GEOMETRY = 1 << 6
+            HAS_ILLEGAL_GEOMETRY = 1 << 6,
+            HAS_EXTRA_POLYS = 1 << 7,      // Leaf enthaelt Extra-Polygone (Wasser, Glas, ...)
+            HAS_VOLUME = 1 << 8            // Leaf enthaelt (Teile von) Volumen-Brushes
         };
 
         enum : uint32_t
         {
             POLY_FLAG_NONE = 0,
             POLY_FLAG_OUT_SIDE = 1 << 1,        // Polygone der Umschliessungsbox (Normale nach innen!)
-            POLY_FLAG_SPLITTER_USED = 1 << 2    // intern: Ebene wurde schon als Splitter benutzt
+            POLY_FLAG_SPLITTER_USED = 1 << 2,   // intern: Ebene wurde schon als Splitter benutzt
+            POLY_FLAG_VOLUME_FACE = 1 << 3,     // Flaeche eines eingefuegten Volumen-Brushes
+            POLY_FLAG_VOLUME_CAP = 1 << 4       // beim Klippen erzeugte Schnittflaeche (Deckel)
         };
 
         // ------------------------------------------------------------
@@ -60,7 +64,6 @@ namespace ng
             uint32_t objectId = 0;
             uint32_t flags = 0;
             int volumeId = -1;
-            ng::renderer::gfx::Texture texture;
 
             static BSPPolygon FromTriangle(
                 const Vertex& v0, const Vertex& v1, const Vertex& v2,
@@ -73,8 +76,6 @@ namespace ng
                 poly.objectId = objectId;
                 return poly;
             }
-
-    
         };
 
         // ------------------------------------------------------------
@@ -116,7 +117,7 @@ namespace ng
 
             frontOut.plane = poly.plane;
             backOut.plane = poly.plane;
-            frontOut.texture = poly.texture;
+
             frontOut.materialId = backOut.materialId = poly.materialId;
             frontOut.objectId = backOut.objectId = poly.objectId;
             frontOut.flags = backOut.flags = poly.flags;
@@ -690,6 +691,245 @@ namespace ng
         }
 
         // ------------------------------------------------------------
+        // Volumen-Stuecke
+        //
+        // Ein Volumen (Wasser, Lava, ...) ist ein geschlossener KONVEXER Brush.
+        // Beim Einfuegen in den BSP wird er an den Splitter-Ebenen geteilt. Damit
+        // jedes Stueck geschlossen bleibt, bekommt es an der Schnittebene einen
+        // Deckel (POLY_FLAG_VOLUME_CAP). Normalen zeigen nach INNEN.
+        // ------------------------------------------------------------
+
+        template <class T>
+        struct BSPVolumePiece
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+
+            int volumeId = -1;
+            uint32_t medium = 0;                 // frei waehlbare Flags (z.B. Wasser/Lava)
+            std::vector<BSPPolygon<T>> faces;    // geschlossen, konvex, Normalen nach innen
+
+            // Liegt der Punkt im Stueck? (Innenseite = Vorderseite jeder Ebene)
+            bool Contains(const Vec3& p, T eps) const
+            {
+                if (faces.empty()) return false;
+
+                for (const auto& f : faces)
+                    if (f.plane.distance(p) < -eps)
+                        return false;
+
+                return true;
+            }
+        };
+
+        // Baut die Ebene eines Polygons aus seinen Vertices so, dass ihre Normale
+        // zu "desiredNormal" zeigt. Dreht dazu ggf. die Vertex-Reihenfolge um.
+        template <class T>
+        inline bool BuildOrientedPlane(std::vector<ng::geometry::Vertex<T>>& verts,
+            const ng::math::Matrix<3, 1, T>& desiredNormal,
+            ng::math::RayPlaneLine<3, T>& out)
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            using Plane = ng::math::RayPlaneLine<3, T>;
+
+            const size_t n = verts.size();
+            if (n < 3) return false;
+
+            // Dreieck (0, 1, k) mit der groessten Flaeche
+            const Vec3 a = verts[0].world();
+            const Vec3 b = verts[1].world();
+
+            size_t bestK = 0;
+            T bestLen = T(0);
+
+            for (size_t k = 2; k < n; ++k)
+            {
+                const T len = ((b - a) % (verts[k].world() - a)).length();
+                if (len > bestLen) { bestLen = len; bestK = k; }
+            }
+
+            if (bestK == 0 || bestLen <= T(1e-12))
+                return false;
+
+            const Vec3 c = verts[bestK].world();
+
+            Plane pl(a, b, c);
+            const Vec3 nn = pl.normal();
+            const T dot = nn(0) * desiredNormal(0) + nn(1) * desiredNormal(1) + nn(2) * desiredNormal(2);
+
+            if (dot < T(0))
+            {
+                pl = Plane(a, c, b);
+                std::reverse(verts.begin(), verts.end());
+            }
+
+            out = pl;
+            return true;
+        }
+
+        // FRONT (auch "ganz auf der Ebene"), BACK oder SPANNING
+        template <class T>
+        inline int ClassifyVolumePiece(const ng::math::RayPlaneLine<3, T>& plane,
+            const BSPVolumePiece<T>& piece, T eps)
+        {
+            using Plane = ng::math::RayPlaneLine<3, T>;
+
+            bool front = false, back = false;
+
+            for (const auto& f : piece.faces)
+            {
+                for (const auto& v : f.verts)
+                {
+                    const T d = plane.distance(v.world());
+                    if (d > eps)       front = true;
+                    else if (d < -eps) back = true;
+
+                    if (front && back) return Plane::SPANNING;
+                }
+            }
+
+            return back ? Plane::BACK : Plane::FRONT;
+        }
+
+        // Teilt ein konvexes Volumen-Stueck an einer Ebene und schliesst beide
+        // Teile mit einem Deckel.
+        template <class T>
+        inline void SplitVolumePiece(const BSPVolumePiece<T>& in,
+            const ng::math::RayPlaneLine<3, T>& plane, T eps,
+            BSPVolumePiece<T>& front, BSPVolumePiece<T>& back)
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            using Plane = ng::math::RayPlaneLine<3, T>;
+
+            front.volumeId = back.volumeId = in.volumeId;
+            front.medium = back.medium = in.medium;
+            front.faces.clear();
+            back.faces.clear();
+
+            const T minArea = eps * eps;
+
+            for (const auto& f : in.faces)
+            {
+                switch (ClassifyVerts(plane, f.verts, eps))
+                {
+                case Plane::FRONT:
+                    front.faces.push_back(f);
+                    break;
+
+                case Plane::BACK:
+                    back.faces.push_back(f);
+                    break;
+
+                case Plane::PLANAR:
+                {
+                    const Vec3 a = plane.normal();
+                    const Vec3 c = f.plane.normal();
+                    if (a(0) * c(0) + a(1) * c(1) + a(2) * c(2) >= T(0))
+                        front.faces.push_back(f);
+                    else
+                        back.faces.push_back(f);
+                    break;
+                }
+
+                default: // SPANNING
+                {
+                    BSPPolygon<T> fp, bp;
+                    SplitPolygon(plane, f, eps, fp, bp);
+
+                    if (fp.verts.size() >= 3 && VertsArea(fp.verts) > minArea) front.faces.push_back(std::move(fp));
+                    if (bp.verts.size() >= 3 && VertsArea(bp.verts) > minArea) back.faces.push_back(std::move(bp));
+                    break;
+                }
+                }
+            }
+
+            // Alle Punkte auf der Trennebene sammeln -> Umriss des Deckels
+            std::vector<Vec3> pts;
+
+            auto collect = [&](const std::vector<BSPPolygon<T>>& faces)
+                {
+                    for (const auto& f : faces)
+                    {
+                        for (const auto& v : f.verts)
+                        {
+                            const Vec3 p = v.world();
+                            if (std::abs(plane.distance(p)) > eps) continue;
+
+                            bool dup = false;
+                            for (const auto& q : pts)
+                                if ((q - p).length() <= eps * T(2)) { dup = true; break; }
+
+                            if (!dup) pts.push_back(p);
+                        }
+                    }
+                };
+
+            collect(front.faces);
+            collect(back.faces);
+
+            if (pts.size() < 3) return;
+
+            Vec3 c(0, 0, 0);
+            for (const auto& p : pts) c = c + p;
+            c = c * (T(1) / T(pts.size()));
+
+            const Vec3 n = plane.normal();
+
+            // Basis in der Ebene, Punkte nach Winkel sortieren
+            Vec3 axis(0, 0, 0);
+            if (std::abs(n(0)) <= std::abs(n(1)) && std::abs(n(0)) <= std::abs(n(2))) axis(0) = T(1);
+            else if (std::abs(n(1)) <= std::abs(n(2)))                                axis(1) = T(1);
+            else                                                                      axis(2) = T(1);
+
+            Vec3 u = axis % n;
+            u.normalize();
+            Vec3 w = n % u;
+            w.normalize();
+
+            std::vector<std::pair<T, size_t>> ang;
+            ang.reserve(pts.size());
+            for (size_t i = 0; i < pts.size(); ++i)
+            {
+                const Vec3 d = pts[i] - c;
+                const T du = d(0) * u(0) + d(1) * u(1) + d(2) * u(2);
+                const T dw = d(0) * w(0) + d(1) * w(1) + d(2) * w(2);
+                ang.emplace_back(std::atan2(dw, du), i);
+            }
+            std::sort(ang.begin(), ang.end(),
+                [](const std::pair<T, size_t>& a, const std::pair<T, size_t>& b) { return a.first < b.first; });
+
+            std::vector<ng::geometry::Vertex<T>> capVerts;
+            capVerts.reserve(pts.size());
+            for (const auto& a : ang)
+            {
+                ng::geometry::Vertex<T> vt;
+                vt.world() = pts[a.second];
+                capVerts.push_back(vt);
+            }
+
+            if (VertsArea(capVerts) <= minArea) return;
+
+            // Deckel des Vorderstuecks: Normale +n (Innenraum liegt vorne)
+            {
+                BSPPolygon<T> cap;
+                cap.verts = capVerts;
+                cap.volumeId = in.volumeId;
+                cap.flags = POLY_FLAG_VOLUME_CAP;
+                if (BuildOrientedPlane(cap.verts, n, cap.plane))
+                    front.faces.push_back(std::move(cap));
+            }
+
+            // Deckel des Hinterstuecks: Normale -n
+            {
+                BSPPolygon<T> cap;
+                cap.verts = capVerts;
+                cap.volumeId = in.volumeId;
+                cap.flags = POLY_FLAG_VOLUME_CAP;
+                if (BuildOrientedPlane(cap.verts, n * T(-1), cap.plane))
+                    back.faces.push_back(std::move(cap));
+            }
+        }
+
+        // ------------------------------------------------------------
         // BSPNode
         // ------------------------------------------------------------
 
@@ -734,6 +974,16 @@ namespace ng
             inline std::shared_ptr<BSPNode<T>> GetBackNode() { return m_back_node; }
             inline const std::vector<BSPPolygon<T>>& GetPolygons() const { return polys; }
 
+            // Extra-Polygone (Wasser, Glas, ...) und Volumen-Stuecke dieses Leaves.
+            inline const std::vector<BSPPolygon<T>>& GetExtraPolygons() const { return extraPolys; }
+            inline const std::vector<BSPVolumePiece<T>>& GetVolumes() const { return volumes; }
+            inline void DeleteExtra()
+            {
+                extraPolys.clear();
+                volumes.clear();
+                m_state &= ~static_cast<uint32_t>(HAS_EXTRA_POLYS | HAS_VOLUME);
+            }
+
             inline Plane GetPlane() const { return m_plane; }
             inline int32_t GetID() const { return m_id; }
             inline uint32_t& State() { return m_state; }
@@ -751,6 +1001,8 @@ namespace ng
             };
 
             std::vector<BSPPolygon<T>> polys;          // nur in Leaves
+            std::vector<BSPPolygon<T>> extraPolys;     // nur in Leaves: Wasser, Glas, ...
+            std::vector<BSPVolumePiece<T>> volumes;    // nur in Leaves: Stuecke von Volumen-Brushes
             std::vector<BSPPolygon<T>> m_coplanar;     // nur in Nodes, nur fuer Portal-Bau
             uint32_t m_state = NODE;
             std::shared_ptr<BSPNode<T>> m_front_node;
@@ -1265,18 +1517,21 @@ namespace ng
 
                     removed += m_leaflist[i]->polys.size();
                     m_leaflist[i]->DeletePolys();
+                    m_leaflist[i]->DeleteExtra();
                     m_leaflist[i]->State() |= INTOTHEVOID;
                 }
 
                 return removed;
             }
 
-            inline std::vector<BSPPolygon<T>> CollectRemainingPolygons() const
+            inline std::vector<BSPPolygon<T>> CollectRemainingPolygons(/*bool add_extr_polygons = true*/) const
             {
                 std::vector<BSPPolygon<T>> out;
 
-                for (const auto& leaf : m_leaflist)
+                for (const auto& leaf : m_leaflist) {
                     out.insert(out.end(), leaf->polys.begin(), leaf->polys.end());
+                  //  out.insert(out.end(), leaf->extraPolys.begin(), leaf->extraPolys.end());
+                }
 
                 return out;
             }
@@ -1418,6 +1673,235 @@ namespace ng
                 }
 
                 return collapsed;
+            }
+
+            // --------------------------------------------------------
+            // InsertExtraPolygons
+            //
+            // Fuegt NACH dem Build zusaetzliche Polygone (Wasser, Glas, ...) ein.
+            // Sie laufen wie normale Polygone durch den Baum und werden an den
+            // Splitter-Ebenen geteilt, landen aber in einer EIGENEN Liste der Leaves
+            // (Node::GetExtraPolygons()). Baum, Portale und Flood bleiben unberuehrt.
+            // Ein Polygon exakt in einer Splitter-Ebene kommt in beide Seiten
+            // (doppelseitig sichtbar).
+            //
+            // skipVoidLeaves: Leaves, die der Flood als Aussenraum markiert hat
+            // (INTOTHEVOID), bekommen nichts.
+            // Rueckgabe: Anzahl gespeicherter Fragmente.
+            // --------------------------------------------------------
+            inline size_t InsertExtraPolygons(const std::vector<BSPPolygon<T>>& polys,
+                bool skipVoidLeaves = true)
+            {
+                using Plane = ng::math::RayPlaneLine<3, T>;
+
+                if (!m_root) return 0;
+
+                const T eps = m_epsilon;
+                const T minArea = eps * eps;
+                size_t stored = 0;
+
+                struct Item
+                {
+                    BSPNode<T>* node;
+                    BSPPolygon<T> poly;
+                };
+
+                std::vector<Item> stack;
+
+                for (const auto& src : polys)
+                {
+                    if (src.verts.size() < 3) continue;
+
+                    BSPPolygon<T> start = src;
+                    start.flags &= ~static_cast<uint32_t>(POLY_FLAG_SPLITTER_USED);
+                    stack.push_back(Item{ m_root.get(), std::move(start) });
+
+                    while (!stack.empty())
+                    {
+                        Item it = std::move(stack.back());
+                        stack.pop_back();
+
+                        BSPNode<T>* n = it.node;
+
+                        if (n->isLeaf())
+                        {
+                            if (skipVoidLeaves && (n->m_state & INTOTHEVOID)) continue;
+
+                            n->extraPolys.push_back(std::move(it.poly));
+                            n->m_state |= HAS_EXTRA_POLYS;
+                            ++stored;
+                            continue;
+                        }
+
+                        const Plane plane = n->m_plane;
+                        BSPNode<T>* f = n->m_front_node.get();
+                        BSPNode<T>* b = n->m_back_node.get();
+
+                        switch (ClassifyVerts(plane, it.poly.verts, eps))
+                        {
+                        case Plane::FRONT:
+                            stack.push_back(Item{ f, std::move(it.poly) });
+                            break;
+
+                        case Plane::BACK:
+                            stack.push_back(Item{ b, std::move(it.poly) });
+                            break;
+
+                        case Plane::PLANAR:
+                            stack.push_back(Item{ f, it.poly });
+                            stack.push_back(Item{ b, std::move(it.poly) });
+                            break;
+
+                        default: // SPANNING
+                        {
+                            BSPPolygon<T> fp, bp;
+                            SplitPolygon(plane, it.poly, eps, fp, bp);
+
+                            if (fp.verts.size() >= 3 && VertsArea(fp.verts) > minArea)
+                                stack.push_back(Item{ f, std::move(fp) });
+                            if (bp.verts.size() >= 3 && VertsArea(bp.verts) > minArea)
+                                stack.push_back(Item{ b, std::move(bp) });
+                            break;
+                        }
+                        }
+                    }
+                }
+
+                return stored;
+            }
+
+            // --------------------------------------------------------
+            // InsertVolume
+            //
+            // Fuegt NACH dem Build einen kompletten, geschlossenen KONVEXEN Brush
+            // (Wasser, Lava, ...) ein. Er wird wie Polygone an den Splitter-Ebenen
+            // geklippt, bleibt aber in jedem Leaf geschlossen (an den Schnittebenen
+            // entstehen Deckel, POLY_FLAG_VOLUME_CAP). Die Leaves bekommen HAS_VOLUME.
+            //
+            // faces : die Flaechen des Brushes. Die Normalen werden automatisch nach
+            //         INNEN ausgerichtet. Nicht-konvexe Brushes vorher in konvexe teilen.
+            // medium: frei waehlbare Flags (z.B. WATER | LIQUID), siehe MediumAtPoint().
+            //
+            // Rueckgabe: Anzahl gespeicherter Stuecke.
+            // --------------------------------------------------------
+            inline size_t InsertVolume(const std::vector<BSPPolygon<T>>& faces,
+                int volumeId, uint32_t medium, bool skipVoidLeaves = true)
+            {
+                using Plane = ng::math::RayPlaneLine<3, T>;
+
+                if (!m_root || faces.size() < 4) return 0;
+
+                const T eps = m_epsilon;
+
+                // Schwerpunkt = sicher im Inneren eines konvexen Volumens
+                Vec3 c(0, 0, 0);
+                size_t cnt = 0;
+                for (const auto& f : faces)
+                    for (const auto& v : f.verts) { c = c + v.world(); ++cnt; }
+
+                if (cnt == 0) return 0;
+                c = c * (T(1) / T(cnt));
+
+                BSPVolumePiece<T> piece;
+                piece.volumeId = volumeId;
+                piece.medium = medium;
+
+                for (const auto& f : faces)
+                {
+                    if (f.verts.size() < 3) continue;
+
+                    BSPPolygon<T> face = f;
+                    face.flags |= POLY_FLAG_VOLUME_FACE;
+                    face.volumeId = volumeId;
+
+                    // Zeigt die Normale nach aussen, umdrehen
+                    if (face.plane.distance(c) < -eps)
+                    {
+                        const Vec3 n = face.plane.normal();
+                        BuildOrientedPlane(face.verts, n * T(-1), face.plane);
+                    }
+
+                    piece.faces.push_back(std::move(face));
+                }
+
+                if (piece.faces.size() < 4) return 0;
+
+                struct Item
+                {
+                    BSPNode<T>* node;
+                    BSPVolumePiece<T> piece;
+                };
+
+                std::vector<Item> stack;
+                stack.push_back(Item{ m_root.get(), std::move(piece) });
+
+                size_t stored = 0;
+
+                while (!stack.empty())
+                {
+                    Item it = std::move(stack.back());
+                    stack.pop_back();
+
+                    BSPNode<T>* n = it.node;
+
+                    if (n->isLeaf())
+                    {
+                        if (skipVoidLeaves && (n->m_state & INTOTHEVOID)) continue;
+                        if (it.piece.faces.size() < 4) continue;
+
+                        n->volumes.push_back(std::move(it.piece));
+                        n->m_state |= HAS_VOLUME;
+                        ++stored;
+                        continue;
+                    }
+
+                    const Plane plane = n->m_plane;
+
+                    switch (ClassifyVolumePiece(plane, it.piece, eps))
+                    {
+                    case Plane::BACK:
+                        stack.push_back(Item{ n->m_back_node.get(), std::move(it.piece) });
+                        break;
+
+                    case Plane::SPANNING:
+                    {
+                        BSPVolumePiece<T> fp, bp;
+                        SplitVolumePiece(it.piece, plane, eps, fp, bp);
+
+                        if (fp.faces.size() >= 4) stack.push_back(Item{ n->m_front_node.get(), std::move(fp) });
+                        if (bp.faces.size() >= 4) stack.push_back(Item{ n->m_back_node.get(),  std::move(bp) });
+                        break;
+                    }
+
+                    default: // FRONT
+                        stack.push_back(Item{ n->m_front_node.get(), std::move(it.piece) });
+                        break;
+                    }
+                }
+
+                return stored;
+            }
+
+            // In welchem Medium liegt der Punkt? ODER ueber die "medium"-Flags aller
+            // Volumen, die den Punkt enthalten (0 = normale Luft).
+            inline uint32_t MediumAtPoint(const Vec3& p) const
+            {
+                const int32_t id = FindLeafId(p);
+                if (id < 0 || (size_t)id >= m_leaflist.size()) return 0;
+
+                uint32_t medium = 0;
+                for (const auto& piece : m_leaflist[id]->volumes)
+                    if (piece.Contains(p, m_epsilon))
+                        medium |= piece.medium;
+
+                return medium;
+            }
+
+            // Leaf zu einer ID (nullptr bei ungueltiger ID).
+            inline std::shared_ptr<BSPNode<T>> GetLeaf(int32_t id) const
+            {
+                if (id < 0 || (size_t)id >= m_leaflist.size()) return nullptr;
+                return m_leaflist[id];
             }
 
             // --------------------------------------------------------

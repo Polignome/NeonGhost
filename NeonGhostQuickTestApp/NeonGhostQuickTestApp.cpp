@@ -8,8 +8,7 @@
 int main()
 {
 	
-	
-	
+		
 	{
 		std::vector<ng::math::Matrix<3, 1, float>> l;
 		l.push_back(ng::math::Matrix<3, 1, float>(1, 2, 3));
@@ -64,6 +63,7 @@ int main()
 		l.push_back(ng::geometry::Vertex<float>(ng::math::Matrix<3, 1, float>(1, -5, 3)));
 		l.push_back(ng::geometry::Vertex<float>(ng::math::Matrix<3, 1, float>(1, 2, -3)));
 		l.push_back(ng::geometry::Vertex<float>(ng::math::Matrix<3, 1, float>(-3, 2, 8)));
+
 
 		ng::geometry::Primitive<3, float> prim(l);
 

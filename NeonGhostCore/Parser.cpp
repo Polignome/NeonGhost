@@ -55,7 +55,7 @@ void Parser::clear() {
 
 int Parser::load(const std::string& filename, const unsigned long flags) {
 	clear();
-	std::cout << "int Parser::load(const std::string& filename, const unsigned long flags)" << std::endl;
+	
 
 	parse(filename, flags);
 
@@ -79,7 +79,7 @@ int Parser::load(const std::string& filename, const unsigned long flags) {
 		return PARSER_ERROR;
 	}
 
-	std::cout << "int Parser::load(const std::string& filename, const unsigned long flags) ENDE" << std::endl;
+	
 
 	return NO_PARSER_ERROR;
 }
@@ -138,17 +138,14 @@ int Parser::parse(const std::string& filename, const unsigned long flags)
 
 		if (str) {
 			this->SetError(" \" wurde nicht geschlossen ");
-			std::cout << "\\ wurde nicht geschlossen" << std::endl;
 		}
 		myfile.close();
 	}
 	else {
-		std::cout << "Unable to open file " << filename << std::endl;
 
 		return PARSER_ERROR;
 	}
 
-	std::cout << "NO Error pareser\n";
 
 	return NO_PARSER_ERROR;
 }
@@ -210,7 +207,7 @@ void Parser::SetError(std::string name)
 void Parser::BeginEntity(std::string name)
 {
 	TEntity entity;
-	std::cout << name << std::endl;
+	
 
 	entity.parent = current_entity;
 	entity.name = name;

@@ -369,6 +369,12 @@
     <ClInclude Include="Wad3File.h">
       <Filter>Headerdateien\Map</Filter>
     </ClInclude>
+    <ClInclude Include="Bspcollision.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerController.h">
+      <Filter>Headerdateien\Controler</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

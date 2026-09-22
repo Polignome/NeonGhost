@@ -36,6 +36,7 @@ static bool m_use_spanbuffer = false;
 static bool m_use_lod = false;
 static bool m_use_after_fx = false;
 static bool m_use_tile_base_rendering = true;
+static bool m_use_collision = false;
 static size_t m_num_visible_leafs = 0;
 static size_t m_num_bsp_leafs = 0;
 
@@ -51,10 +52,13 @@ static std::vector<float> m_out_cellscount;
 static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
 static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
+
 static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
 static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
 static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
 
+
+static ng::controller::PlayerController<NG_MATH_FLOAT> m_player(m_bsp);
 
 inline void Render2DWindow(bool& m_software_renderer_visible)
 {
@@ -878,16 +882,6 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
         }
     }
     ImGui::End();
-/*
-    for (auto n : ng::resource::Manager::GetResourceManagerList()) {
-        std::string name = n->GetName();
-        auto res = ng::resource::Manager::GetResourceManagerByName(name);
-        for (auto n : res->GetResourceNameList()) {
-            printf("%s  -> %s\n", name.c_str(), n.c_str());
-        
-        }
-    }
- */
 
 
     if (m_flush) ng::resource::Manager::Flush();
@@ -1168,8 +1162,7 @@ inline void RenderMocWindow(bool& m_software_renderer_visible)
     if (mode == 1) m_rasterizer_3d.GetMOCBufferRef().VisualizeMask(m_moc_buffer.GetRawBuffer());
 
 
-    //    Noise(m_soft_renderer_buffer);
-        //  printf("m_soft_renderer_buffer i \n", m_soft_renderer_buffer.GetRawBuffer());
+   
     m_soft_renderer_3d.Update(m_moc_buffer.GetRawBuffer());
 
 
@@ -1411,12 +1404,12 @@ inline void SomeDebugStuff() {
                 }
                 else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
             }
-            help = ImGui::GetCursorScreenPos().y;
+            help = (int)ImGui::GetCursorScreenPos().y;
             ImGui::EndChild();
             }
         ImVec2 end = ImGui::GetItemRectSize();
-        end.y = help+ 20;
-        end.x += start.x+20;
+        end.y = float(help + 20);
+        end.x += float(start.x+20);
         ImGui::GetWindowDrawList()->AddRectFilled(
             start,
             end,
@@ -1443,6 +1436,11 @@ inline void AddRenderMenuSubMenue() {
         ImGui::EndMenu();
 
     }
+    if (ImGui::BeginMenu("Physics")) {
+        if (ImGui::MenuItem("Use collision", "", m_use_collision)) m_use_collision = !m_use_collision;
+        ImGui::EndMenu();
+    }
+    
     if (ImGui::BeginMenu("Renderer")) {
         if (ImGui::MenuItem("Pre sort Objects", "", m_render_pipeline_3d.IsPreSortObjsEnabled())) m_render_pipeline_3d.PreSortObjs(!m_render_pipeline_3d.IsPreSortObjsEnabled());
         if (ImGui::MenuItem("LOD", "", m_use_lod)) m_use_lod = !m_use_lod;
@@ -1453,6 +1451,7 @@ inline void AddRenderMenuSubMenue() {
     m_render_pipeline_3d.SetCullingMode(mode);
     m_rasterizer_3d.SetTiledRenderingEnabled(m_use_tile_base_rendering);
 }
+
 
 inline void UpdateRenderMovement(bool reset_mouse = false) {
 
@@ -1467,7 +1466,12 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     m_mouse_steps.y = m_mouse_pos.y - m_mouse_pos_old.y;
     m_mouse_pos_old = m_mouse_pos;
 
-
+    // NEU: Wunsch-Eingabe fuer diesen Frame (wird unten je nach Kollisions-
+    // Modus entweder direkt bewegt oder durch den Player-Controller geschickt).
+    float wishRight = 0.0f;
+    float wishForward = 0.0f;
+    bool speedup = false;
+    bool wishJump = false;
 
     if (ImGui::IsWindowFocused()) {
         m_mouse_pos.x = -1;
@@ -1507,21 +1511,22 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
 
         if (ImGui::IsMouseHoveringRect(wmin, wmax) && m_mouse_pos_old.x != -1 && m_mouse_pos_old.y != -1) {
 
-            const float speed = 5.0;
+           // float speed = 5.0;
             const float speed2 = 0.25;
 
             if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
                 cam_controller.Turn(m_camera, m_mouse_steps.y * speed2, m_mouse_steps.x * speed2);
-
             }
 
-            //            if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) m_soft_renderer.camera().Turn(m_mouse_steps.y * speed2, m_mouse_steps.x * speed2);
-
-            if (ImGui::IsKeyDown(ImGuiKey_W)) cam_controller.Move(m_camera, 0, -speed, 0);
-            if (ImGui::IsKeyDown(ImGuiKey_S)) cam_controller.Move(m_camera, 0, speed, 0);
-
-            if (ImGui::IsKeyDown(ImGuiKey_A)) cam_controller.Move(m_camera, -speed, 0, 0);
-            if (ImGui::IsKeyDown(ImGuiKey_D)) cam_controller.Move(m_camera, speed, 0, 0);
+            // GEAENDERT: WASD bewegt nicht mehr direkt die Kamera, sondern setzt
+            // nur noch die Wunschrichtung. Ausgefuehrt wird die Bewegung weiter
+            // unten, je nachdem ob Kollision an oder aus ist.
+            if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) speedup = true;
+            if (ImGui::IsKeyDown(ImGuiKey_W)) wishForward -= 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_S)) wishForward += 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_A)) wishRight -= 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_D)) wishRight += 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_Space)) wishJump = true;
         }
     }
 
@@ -1531,10 +1536,37 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     dt = std::min(dt, 0.05f); // Cap gegen Spiral-of-Death bei Lags
     lastTime = now;
 
+    // Einmalig: Player an der aktuellen Kameraposition "einklinken".
+    if (!m_player.IsInitialized())
+    {
+        m_player.Init(m_camera.position(), /*eyeHeight*/ 28.0f);
+        m_player.SetGravity(ng::math::Matrix<3,1, NG_MATH_FLOAT>(0, -800, 0));   // simulierte Erdanziehung zum Testen
+    }
 
+    m_player.SetEnabled(m_use_collision);
 
+    if (m_use_collision)
+    {
+        // Kollision aktiv: Ellipsoid + Gravitationsvektor, Bewegung/Position
+        // werden intern gegen den BSP getestet und setzen die Kamera selbst.
+        if (speedup) {
+            wishRight *= 5;
+            wishForward *= 5;
+        }
+        m_player.Update(m_camera, dt, wishRight, wishForward, wishJump);
+    }
+    else
+    {
+        // Kollision aus: exakt dein bisheriges freies Fliegen.
+        float speed = 5.0f;
+        if (speedup) speed *= 2;
+        if (wishForward != 0.0f) cam_controller.Move(m_camera, 0, wishForward * speed, 0);
+        if (wishRight != 0.0f) cam_controller.Move(m_camera, wishRight * speed, 0, 0);
 
-
+        // Player-Zustand synchron halten, damit beim Umschalten auf "Kollision an"
+        // keine alte Position/Geschwindigkeit uebernommen wird.
+        m_player.Init(m_camera.position(), 28.0f);
+    }
 
     for (auto& m : m_mesh_obj) {
         m.Update(dt);
@@ -1542,7 +1574,6 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     }
 
 }
-
 inline void RenderWindow(bool& m_software_renderer_visible)
 {
 

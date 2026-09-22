@@ -107,7 +107,7 @@ namespace ng {
 				unsigned long aggregate = brush.CheckAggregate();
 				if (aggregate == BrushFace<T>::WRONG)
 				{
-					std::cout << "BRUSH HAS NO UNION AGGREGATE \n";
+					
 					brush.SetAllFacesSolid();
 					aggregate = BrushFace<T>::SOLID;
 				}

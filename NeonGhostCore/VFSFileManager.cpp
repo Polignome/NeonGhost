@@ -23,7 +23,7 @@ namespace ng::io::vfs
 
     std::vector<DirectoryEntry> VFSFileManager::List(std::string_view path)
     {
-        printf("VFSFileManager\n");
+      
         return g_vfs.List(path);
     }
 

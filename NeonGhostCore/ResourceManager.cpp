@@ -184,7 +184,7 @@ Manager::Manager()
 {
 	if (m_instance == nullptr)
 	{
-		printf("Bingooooooo\n");
+	
 		m_instance = this;
 	}
 

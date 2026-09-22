@@ -20,6 +20,7 @@
 #include <list>
 #include "FPSCounter.h"
 #include "HalfLife.h"
+#include <Bspcollision.h>
 #include <Map.h>
 
 #pragma comment(lib,"SDL2.lib")
@@ -33,8 +34,6 @@
 NG_BIND_MANAGER
 
 
-
-
 #define NG_USE_STATIC_MESH_ONLY
 
 const size_t MAX_POLY_COUNTS = 100;   
@@ -44,7 +43,6 @@ const size_t MAX_POLY_COUNTS = 100;
 
 
 static ng::tools::FPSCounter m_fps_counter;
-
 
 
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
@@ -118,24 +116,6 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 }
 
 
-inline void RenderNode(const std::shared_ptr<ng::bsp::BSPNode<NG_MATH_FLOAT>> &node) {
-    if (node == nullptr) return;
-
-    
-    if (node->isLeaf()) {
-        for (auto p : node->GetPolygons()) {
-            m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
-            m_render_pipeline_3d.RenderPolygon(p.verts);
-        }
-    }
-    
-
-
-
-    if (node->GetFrontNode() != nullptr) RenderNode(node->GetFrontNode());
-    if (node->GetBackNode() != nullptr) RenderNode(node->GetBackNode());
-
-}
 
 
 inline void Render() {
@@ -228,11 +208,7 @@ inline void Render() {
     addValue(m_out_polycount, outp, MAX_POLY_COUNTS);
     addValue(m_fps_count, (float)m_fps_counter.FPS(), MAX_POLY_COUNTS);
     addValue(m_out_cellscount, cc, m_render_pipeline_3d.GetStatistics().cells_in_pvs);
-    /*
-    printf("Zellen: PVS %u, mit Geometrie %u, Frustum %u, MOC %u, HZB %u, gerendert %u\n",
-        s.cells_in_pvs, s.cells_with_geometry, s.cells_frustum_culled,
-        s.cells_culled_by_moc, s.cells_culled_by_hzb, s.cells_rendered);
-        */
+   
 
 }
 
@@ -341,7 +317,6 @@ DistributeObjectsInCube(
 void InitStuff() {
 
 
-
     m_camera.aspect() = (double)m_rasterizer_3d.Width() / (double)m_rasterizer_3d.Height();
     m_camera.fov() = ng::math::degreesToRadians(64.0);
     m_camera.nearp() = 0.0001;
@@ -349,7 +324,8 @@ void InitStuff() {
     m_camera.position() = ng::math::Matrix<3, 1, NG_MATH_FLOAT>(0, 0, 0);
     m_camera.LookAt(ng::math::Matrix<3, 1, NG_MATH_FLOAT>(0, 0, 0));
     
-
+    // einmalig
+    m_player.Init(ng::math::Matrix<3, 1, NG_MATH_FLOAT>(0, 0, 0), /*eyeHeight*/ 28);
 }
 
 
@@ -593,29 +569,38 @@ int main(int argc, char** argv) {
 
 
 
-
                 auto brush=data.ExtractBrushes();
                 brush = ng::map::csg::MakeUnion(brush);
 
+
+
+
                 std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
+                std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> extra_polys;
                 auto tnames = m_wad_file.GetTextureNames();
 
-                for (auto b : brush) {
-                    auto h=b.primitives();
-                    for (auto p : h) {
-
-                    
-                        
-                        for (size_t i = 1; i < p.verts().size() - 1; ++i)
-                        {
-                          
-                            
-                            ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly= ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1],-1);
-                            
-                            polys.push_back(poly);
-                        }
+                
+                auto soild_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush);
+                for (auto p : soild_faces) {
+                    for (size_t i = 1; i < p.verts().size() - 1; ++i)
+                    {
+                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 1);
+                        polys.push_back(poly);
                     }
                 }
+                                
+                auto liquit_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush,ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID);
+                for (auto p : liquit_faces) {
+                    for (size_t i = 1; i < p.verts().size() - 1; ++i)
+                    {
+                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 0);
+                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i+1], p.verts()[i], p.verts()[0], 0);
+                        extra_polys.push_back(poly);
+                        extra_polys.push_back(poly2);
+                    }
+                }
+                
+
                 auto aabb=ng::bsp::ComputeSceneBounds(polys);
                 auto sky =ng::bsp::GenerateSkyboxPolygons(aabb,(NG_MATH_FLOAT) 100);
 
@@ -623,21 +608,22 @@ int main(int argc, char** argv) {
                 m_bsp.Build(polys);
                 m_num_bsp_leafs = m_bsp.GetLeaves().size();
                 m_bsp.BuildPortals();
-                 
+                                  
 
 
                 auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
                 m_bsp.RemoveReachedPolygons(reached);     // Polygone in allen erreichten Leaves loeschen
                 
                 auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
-           
-                
+                           
                 
                 m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
 
                 
                 m_cells.Build(visible, m_vo);
+                m_cells.Tree().InsertExtraPolygons(extra_polys, true);
+
                 ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
                 po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
                 po.verbose = true;

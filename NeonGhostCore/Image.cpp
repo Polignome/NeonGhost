@@ -199,7 +199,7 @@ namespace ng {
                     return 1;
                 }
                 if (element->FindAttribute("name") == nullptr) {
-                  //  std::cout << "IMAGE-Element ohne 'name'-Attribut ignoriert" << std::endl;
+                  
                     return 1;
                 }
                 std::string name = element->Attribute("name");
@@ -216,12 +216,12 @@ namespace ng {
 
                 if (element->FindAttribute("filename") != nullptr) {
                     std::string filename = ng::resource::Manager::GetResourcePath() + element->Attribute("filename");
-                //    std::cout << "IMAGE " << name << " <- " << filename << std::endl;
+              
                     LoadImageFromFile(name, filename, keep_source, attrib);
                     return 0;
                 }
 
-              //  std::cout << "IMAGE '" << name << "' hat kein unterstuetztes Quell-Attribut (filename)" << std::endl;
+              
                 return 1;
             }
         

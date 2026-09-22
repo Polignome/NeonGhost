@@ -186,10 +186,7 @@ namespace ng::renderer::rasterizer {
                 }
                 {
                     std::vector<ng::renderer::rasterizer::ScreenVertex<T>> verts2d = BringToScreen(verts);
-                    //printf("Poly3d________________________\n");
-                    //for (auto v : verts) {
-                    //    printf("%f %f %f  ->   %f %f \n", v.world().x(), v.world().y(), v.world().z(), v.texture().u(), v.texture().v());
-                    //}
+                    
 
 
                     if (verts2d.empty()) continue;
@@ -198,14 +195,7 @@ namespace ng::renderer::rasterizer {
                     // Sichtbares Dreieck rastern ...
                     m_rasterizer.DrawPolygon(verts2d);
 
-                    //   printf("Poly2d________________________\n");
-                    //for (auto v : verts2d) {
-                     //   printf("%f %f %f  ->   %f %f \n", v.x(), v.y(), v.z(), v.u(), v.v());
-                  //  }
-                    // ... UND gleichzeitig in den MOC-Buffer schreiben, damit
-                // WEITER ENTFERNTE Objekte im selben Durchlauf dagegen
-                // testen koennen. Transparente Objekte sollen NICHT
-                // occludieren - sie lassen ja etwas durchscheinen.
+                  
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                         !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
                     {
@@ -252,21 +242,7 @@ namespace ng::renderer::rasterizer {
                 RenderMesh(obj);
             }
         }
-        /*
-        inline void RenderMesh(const std::vector<objects::Mesh<T>>&object) {
-            if (m_pre_zsort_objs) {
-                std::vector<objects::Mesh<T>> objs = object;
-                SortObjectsByDistanceToCamera<objects::Mesh<T>>(objs);
-                for (auto& obj : objs) {
-                    RenderMesh(obj);
-                }
-                return;
-            }
-            for (auto& obj : object) {
-                RenderMesh(obj);
-            }
-        }
-        */
+        
 
         // ------------------------------------------------------------
         // RenderWorld
@@ -295,6 +271,7 @@ namespace ng::renderer::rasterizer {
             UpdateCameraPos();
 
             const auto& polys = cells.Polygons();
+            
             const size_t cellCount = cells.CellCount();
 
             if (cellCount == 0 || polys.empty())
@@ -448,11 +425,21 @@ namespace ng::renderer::rasterizer {
                         bindMaterial(poly.materialId);
                         lastMaterial = poly.materialId;
                         haveMaterial = true;
+                        
                     }
-                    
-                   
-                     m_rasterizer.DrawPolygon(verts2d);
-
+                    if (poly.materialId == 0) {
+                        
+                        ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
+                        state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                        state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
+                        state.flags |= ng::renderer::rasterizer::RASTER_WOBBLE;
+                        state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
+                        state.materialAlpha = 0.5;
+                        m_rasterizer.PushState();
+                        m_rasterizer.SetState(state);
+                        m_rasterizer.DrawPolygon(verts2d);
+                        m_rasterizer.PopState();
+                    } else  m_rasterizer.DrawPolygon(verts2d);
                     // Opake Welt occludiert (wie bei RenderMesh)
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                         !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
@@ -919,9 +906,7 @@ namespace ng::renderer::rasterizer {
             std::vector <ng::renderer::rasterizer::ScreenVertex<T>> verts2d;
             std::vector <ng::geometry::Vertex<T>> vv = verts;
 
-            //   printf("Vor Frustum Clip: ");
-            //for (auto& v : vv) printf("[%f %f] ", v.texture().x(), v.texture().y());
-            //printf("\n");
+          
 
             if (m_culling_mode & CULL_FRUSTUM) {
 
@@ -949,19 +934,13 @@ namespace ng::renderer::rasterizer {
 
             }
 
-            //printf("nach Frustum Clip: ");
-            //for (auto& v : vv) printf("[%f %f] ", v.texture().x(), v.texture().y());
-            //printf("\n");
-
+           
 
             if (!TransformToScreen(vv, verts2d) && (m_culling_mode & CULL_TRANSFORM)) {
                 m_statistics.polys_culled_by_transform++;
                 return std::vector <ng::renderer::rasterizer::ScreenVertex<T>>();
             }
 
-            //printf("nach transform Clip: ");
-            //for (auto& v : verts2d) printf("[%f %f] ", v.u(), v.v());
-            //printf("\n");
 
             Project(verts2d);
 

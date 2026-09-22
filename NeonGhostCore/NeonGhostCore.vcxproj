@@ -153,6 +153,7 @@
     <ClInclude Include="BoundingSphere.h" />
     <ClInclude Include="Brush.h" />
     <ClInclude Include="BSP.h" />
+    <ClInclude Include="Bspcollision.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraController.h" />
     <ClInclude Include="CameraFrustum.h" />
@@ -169,6 +170,7 @@
     <ClInclude Include="miniz_tinfl.h" />
     <ClInclude Include="miniz_zip.h" />
     <ClInclude Include="Parser.h" />
+    <ClInclude Include="PlayerController.h" />
     <ClInclude Include="PVS.h" />
     <ClInclude Include="SkyBoxGen.h" />
     <ClInclude Include="tiny_obj_loader.h" />

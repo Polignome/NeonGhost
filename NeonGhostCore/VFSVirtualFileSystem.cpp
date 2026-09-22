@@ -377,30 +377,30 @@ namespace ng::io::vfs
     std::vector<DirectoryEntry>
         VirtualFileSystem::List(std::string_view path) const
     {
-        printf("VirtualFileSystem::List\n");
+        
 
         std::vector<DirectoryEntry> result;
         std::vector<std::string> seen;
 
         const auto mounts = ResolveMounts(path);
 
-        printf("1\n");
+        
 
         for (const auto& resolved : mounts)
         {
             if (!resolved.mount || !resolved.mount->drive)
                 continue;
 
-            printf("2\n");
+        
 
             const auto entries =
                 resolved.mount->drive->List(resolved.relativePath);
 
-            printf("3\n");
+        
 
             for (const auto& entry : entries)
             {
-                printf("4: name='%s'\n", entry.name.c_str());
+        
 
                 bool found = false;
 
@@ -415,7 +415,7 @@ namespace ng::io::vfs
 
                 if (!found)
                 {
-                    printf("5\n");
+        
 
                     seen.push_back(entry.name);
                     result.push_back(entry);
@@ -423,7 +423,7 @@ namespace ng::io::vfs
             }
         }
 
-        printf("VirtualFileSystem::List ENDE\n");
+
 
         return result;
     }
