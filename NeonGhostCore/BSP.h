@@ -1426,6 +1426,7 @@ namespace ng
             inline void SetEpsilon(T e) { m_epsilon = e; }
 
             inline std::shared_ptr<BSPNode<T>>& GetRoot() { return m_root; }
+            inline const std::shared_ptr<BSPNode<T>>& GetRoot() const { return m_root; }
             inline const std::vector<std::shared_ptr<BSPNode<T>>>& GetLeaves() const { return m_leaflist; }
             inline const std::vector<Portal<T>>& GetPortals() const { return m_portals; }
 
@@ -1530,7 +1531,18 @@ namespace ng
 
                 for (const auto& leaf : m_leaflist) {
                     out.insert(out.end(), leaf->polys.begin(), leaf->polys.end());
-                  //  out.insert(out.end(), leaf->extraPolys.begin(), leaf->extraPolys.end());
+                    //  out.insert(out.end(), leaf->extraPolys.begin(), leaf->extraPolys.end());
+                }
+
+                return out;
+            }
+            
+            inline std::vector<BSPPolygon<T>> CollectRemainingExtraPolygons(/*bool add_extr_polygons = true*/) const
+            {
+                std::vector<BSPPolygon<T>> out;
+
+                for (const auto& leaf : m_leaflist) {
+                     out.insert(out.end(), leaf->extraPolys.begin(), leaf->extraPolys.end());
                 }
 
                 return out;

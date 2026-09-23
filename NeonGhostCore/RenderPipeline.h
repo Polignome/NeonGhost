@@ -271,7 +271,9 @@ namespace ng::renderer::rasterizer {
             UpdateCameraPos();
 
             const auto& polys = cells.Polygons();
-            
+            const auto& extrapolys = cells.ExtraPolygons();
+            std::vector<int32_t> m_post_render_poyls;
+
             const size_t cellCount = cells.CellCount();
 
             if (cellCount == 0 || polys.empty())
@@ -381,6 +383,8 @@ namespace ng::renderer::rasterizer {
             bool haveMaterial = false;
             int lastMaterial = 0;
 
+            
+
             for (const auto& entry : m_worldCellOrder)
             {
                 const int32_t c = entry.second;
@@ -425,10 +429,10 @@ namespace ng::renderer::rasterizer {
                         bindMaterial(poly.materialId);
                         lastMaterial = poly.materialId;
                         haveMaterial = true;
-                        
+
                     }
                     if (poly.materialId == 0) {
-                        
+
                         ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
                         state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_TEST;
                         state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
@@ -439,7 +443,8 @@ namespace ng::renderer::rasterizer {
                         m_rasterizer.SetState(state);
                         m_rasterizer.DrawPolygon(verts2d);
                         m_rasterizer.PopState();
-                    } else  m_rasterizer.DrawPolygon(verts2d);
+                    }
+                    else  m_rasterizer.DrawPolygon(verts2d);
                     // Opake Welt occludiert (wie bei RenderMesh)
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                         !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
@@ -449,7 +454,58 @@ namespace ng::renderer::rasterizer {
 
                     m_statistics.polys_rendered++;
                 }
+
+                
+//////////////////////////////////////// EXTRA POLYS ////////////////////////////////////////////////////////
+                m_post_render_poyls.insert(m_post_render_poyls.end(), cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
             }
+
+            for (uint32_t pi : m_post_render_poyls)
+            {
+                if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                m_worldPolyStamp[pi] = m_worldStampValue;
+
+                const auto& poly = extrapolys[pi];
+
+                m_statistics.polys_in++;
+
+                std::vector<ng::renderer::rasterizer::ScreenVertex<T>> verts2d =
+                    BringToScreen(poly.verts, poly.plane);
+
+                if (verts2d.size() < 3) continue;
+
+                if (!haveMaterial || poly.materialId != lastMaterial)
+                {
+                    bindMaterial(poly.materialId);
+                    lastMaterial = poly.materialId;
+                    haveMaterial = true;
+
+                }
+                if (poly.materialId == 0) {
+
+                    ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
+                    state.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                    state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
+                    state.flags |= ng::renderer::rasterizer::RASTER_WOBBLE;
+                    state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
+                    state.materialAlpha = 0.5;
+                    m_rasterizer.PushState();
+                    m_rasterizer.SetState(state);
+                    m_rasterizer.DrawPolygon(verts2d);
+                    m_rasterizer.PopState();
+                }
+                else  m_rasterizer.DrawPolygon(verts2d);
+                // Opake Welt occludiert (wie bei RenderMesh)
+                if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                    !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                {
+                    m_rasterizer.DrawOcclusionPolygon(verts2d);
+                }
+
+                m_statistics.polys_rendered++;
+            }
+
+
         }
 
         // Ohne Material-Callback

@@ -23,10 +23,16 @@
 //   VisCells<T> cells;   cells.Build(visible);
 //   PVS<T> pvs;          pvs.Build(cells.Tree());
 //
+//   // Extra-Polygone (Wasser, Glas, ... - separat gerendert, blockieren
+//   // keine Sicht, tauchen nicht in den strukturellen Ebenen auf):
+//   cells.InsertExtraPolygons(waterAndGlassPolys);   // NACH Build()
+//
 //   // Rendering
 //   int32_t cell = cells.FindCell(cameraPos);
 //   std::vector<uint32_t> list;
-//   cells.CollectVisiblePolygons(pvs, cell, list);   // Indizes in cells.Polygons()
+//   cells.CollectVisiblePolygons(pvs, cell, list);         // Indizes in cells.Polygons()
+//   std::vector<uint32_t> extraList;
+//   cells.CollectVisibleExtraPolygons(pvs, cell, extraList); // Indizes in cells.ExtraPolygons()
 // ----------------------------------------------------------------------
 
 #include "BSP.h"
@@ -86,6 +92,14 @@ namespace ng
                 m_cellPolys.clear();
                 m_stamp.clear();
                 m_stampValue = 0;
+
+                // Extra-Polygone (Wasser, Glas, ...) gehoeren zu EINEM Build() und
+                // muessen nach einem Neubau erneut per InsertExtraPolygons() gesetzt
+                // werden, da sich Zellen/IDs geaendert haben koennen.
+                m_extraPolys.clear();
+                m_cellExtraPolys.clear();
+                m_extraStamp.clear();
+                m_extraStampValue = 0;
 
                 m_polys.reserve(polygons.size());
                 for (const auto& p : polygons)
@@ -222,8 +236,46 @@ namespace ng
                 // ------------------------------------------------------
 
                 AssignPolygons();
+                m_cellExtraPolys.assign(m_tree.GetLeaves().size(), std::vector<uint32_t>());
 
                 return true;
+            }
+
+            // --------------------------------------------------------
+            // InsertExtraPolygons
+            //
+            // Fuegt Polygone hinzu, die NICHT Teil der strukturellen Geometrie sind
+            // (Wasser, Glas, ...): sie werden den Zellen zugeordnet wie normale
+            // Polygone (auf mehrere Zellen verteilt, nicht geteilt), erscheinen aber
+            // NIE in CollectVisiblePolygons()/Polygons(), sondern nur in
+            // ExtraPolygons()/CollectVisibleExtraPolygons(). So kannst du sie separat
+            // rendern (eigene Blend-/Sortierlogik fuer Transparenz).
+            //
+            // Muss NACH Build() aufgerufen werden. Mehrfacher Aufruf ist erlaubt
+            // (fuegt weitere Polygone hinzu); ein Build() verwirft alle bisherigen.
+            // --------------------------------------------------------
+            void InsertExtraPolygons(const std::vector<BSPPolygon<T>>& extra)
+            {
+                if (m_tree.GetLeaves().empty() || extra.empty())
+                    return;
+
+                if (m_cellExtraPolys.size() != m_tree.GetLeaves().size())
+                    m_cellExtraPolys.assign(m_tree.GetLeaves().size(), std::vector<uint32_t>());
+
+                const size_t base = m_extraPolys.size();
+
+                m_extraPolys.reserve(base + extra.size());
+                for (const auto& p : extra)
+                {
+                    if (p.verts.size() < 3) continue;
+                    m_extraPolys.push_back(p);
+                    m_extraPolys.back().flags &= ~static_cast<uint32_t>(POLY_FLAG_SPLITTER_USED);
+                }
+
+                AssignRange(m_extraPolys, base, m_extraPolys.size(), m_cellExtraPolys);
+
+                m_extraStamp.assign(m_extraPolys.size(), 0);
+                m_extraStampValue = 0;
             }
 
             // Der grobe BSP mit Portalen - das wird ins PVS gegeben.
@@ -235,6 +287,13 @@ namespace ng
 
             // Polygone, die eine Zelle beruehren.
             inline const std::vector<uint32_t>& CellPolygons(int32_t cell) const { return m_cellPolys[cell]; }
+
+            // Extra-Polygone (Wasser, Glas, ...), die eine Zelle beruehren.
+            // Indizes zeigen in ExtraPolygons().
+            inline const std::vector<uint32_t>& CellExtraPolygons(int32_t cell) const { return m_cellExtraPolys[cell]; }
+
+            // Alle per InsertExtraPolygons() eingefuegten Polygone.
+            inline const std::vector<BSPPolygon<T>>& ExtraPolygons() const { return m_extraPolys; }
 
             inline size_t CellCount() const { return m_cellPolys.size(); }
 
@@ -285,6 +344,53 @@ namespace ng
                 }
             }
 
+            // Wie CollectVisiblePolygons(), aber fuer die per InsertExtraPolygons()
+            // eingefuegten Polygone (Wasser, Glas, ...). Eigener Zeitstempel-Puffer,
+            // beide Methoden koennen also unabhaengig voneinander aufgerufen werden.
+            // Nicht thread-sicher.
+            void CollectVisibleExtraPolygons(const PVS<T>& pvs, int32_t fromCell,
+                std::vector<uint32_t>& out) const
+            {
+                out.clear();
+
+                if (m_extraPolys.empty())
+                    return;
+
+                if (!pvs.IsActiveLeaf(fromCell))
+                {
+                    out.resize(m_extraPolys.size());
+                    std::iota(out.begin(), out.end(), uint32_t(0));
+                    return;
+                }
+
+                if (m_extraStamp.size() != m_extraPolys.size())
+                {
+                    m_extraStamp.assign(m_extraPolys.size(), 0);
+                    m_extraStampValue = 0;
+                }
+
+                if (++m_extraStampValue == 0)
+                {
+                    std::fill(m_extraStamp.begin(), m_extraStamp.end(), 0u);
+                    m_extraStampValue = 1;
+                }
+
+                const std::vector<uint8_t> row = pvs.DecompressRow(fromCell);
+
+                for (size_t leaf = 0; leaf < m_cellExtraPolys.size(); ++leaf)
+                {
+                    if (!((row[leaf >> 3] >> (leaf & 7)) & 1u))
+                        continue;
+
+                    for (uint32_t pi : m_cellExtraPolys[leaf])
+                    {
+                        if (m_extraStamp[pi] == m_extraStampValue) continue;
+                        m_extraStamp[pi] = m_extraStampValue;
+                        out.push_back(pi);
+                    }
+                }
+            }
+
         private:
             VisCellOptions<T> m_opt;
             BSPTree<T> m_tree;
@@ -294,22 +400,33 @@ namespace ng
             mutable std::vector<uint32_t> m_stamp;
             mutable uint32_t m_stampValue = 0;
 
+            std::vector<BSPPolygon<T>> m_extraPolys;
+            std::vector<std::vector<uint32_t>> m_cellExtraPolys;
+            mutable std::vector<uint32_t> m_extraStamp;
+            mutable uint32_t m_extraStampValue = 0;
+
             // Schickt jedes Polygon durch den groben BSP (iterativ). Spannt es
             // ueber eine Ebene, kommt es in beide Seiten - ohne es zu teilen.
             void AssignPolygons()
             {
-                using Plane = ng::math::RayPlaneLine<3, T>;
-
                 m_cellPolys.assign(m_tree.GetLeaves().size(), std::vector<uint32_t>());
+                AssignRange(m_polys, 0, m_polys.size(), m_cellPolys);
+            }
+
+            // Wie AssignPolygons(), aber fuer einen Indexbereich [first, last) eines
+            // beliebigen Polygon-Vektors - gemeinsam genutzt von AssignPolygons() und
+            // InsertExtraPolygons(), damit die Zuordnungslogik nur einmal existiert.
+            void AssignRange(const std::vector<BSPPolygon<T>>& src, size_t first, size_t last,
+                std::vector<std::vector<uint32_t>>& cellLists) const
+            {
+                using Plane = ng::math::RayPlaneLine<3, T>;
 
                 const T eps = m_opt.epsilon;
                 std::vector<BSPNode<T>*> stack;
-
-                for (size_t pi = 0; pi < m_polys.size(); ++pi)
+                
+                for (size_t pi = first; pi < last; ++pi)
                 {
-                    const auto& poly = m_polys[pi];
-
-                    stack.clear();
+                    const auto& poly = src[pi];
                     stack.push_back(m_tree.GetRoot().get());
 
                     while (!stack.empty())
@@ -322,8 +439,8 @@ namespace ng
                         if (n->isLeaf())
                         {
                             const int32_t id = n->GetID();
-                            if (id >= 0 && (size_t)id < m_cellPolys.size())
-                                m_cellPolys[id].push_back((uint32_t)pi);
+                            if (id >= 0 && (size_t)id < cellLists.size())
+                                cellLists[id].push_back((uint32_t)pi);
                             continue;
                         }
 
@@ -364,4 +481,3 @@ namespace ng
 
     } // namespace bsp
 } // namespace ng
-

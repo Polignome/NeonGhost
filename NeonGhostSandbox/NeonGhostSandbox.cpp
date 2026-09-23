@@ -189,7 +189,7 @@ inline void Render() {
 
         });
     m_render_pipeline_3d.End();
-        
+      
    
     if (m_use_after_fx )mgr.Apply(totalTime);
 
@@ -606,23 +606,25 @@ int main(int argc, char** argv) {
 
                 for (auto p : sky)polys.push_back(p);
                 m_bsp.Build(polys);
+                m_bsp.InsertExtraPolygons(extra_polys);
+                
                 m_num_bsp_leafs = m_bsp.GetLeaves().size();
                 m_bsp.BuildPortals();
-                                  
-
+                
 
                 auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
                 m_bsp.RemoveReachedPolygons(reached);     // Polygone in allen erreichten Leaves loeschen
                 
                 auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
-                           
+                auto visibleextra = m_bsp.CollectRemainingExtraPolygons(); // Schritt 9
+
                 
                 m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
 
                 
                 m_cells.Build(visible, m_vo);
-                m_cells.Tree().InsertExtraPolygons(extra_polys, true);
+                m_cells.InsertExtraPolygons(visibleextra);
 
                 ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
                 po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
