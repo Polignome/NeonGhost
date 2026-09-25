@@ -52,7 +52,6 @@ static std::vector<float> m_out_cellscount;
 static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
 static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
-
 static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
 static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
 static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
@@ -790,13 +789,15 @@ inline void ViewTextureRes(const std::string& res_name)
 
     if (res) {
         if (level >= res->GetMipLevels()) level = 0;
+        ImGui::Text("Size %i %i", res->Width(), res->Height());
+
         ImGui::SetNextItemWidth(100);
         ImGui::SliderInt("MipLevel", &level, 0, int(res->GetMipLevels() - 1));
         ImGui::Checkbox("Stretch", &stretch);
+        auto resl = res->GetMipLevel(level);
+        ImGui::Text("Size %i %i", resl.Width(), resl.Height());
 
         ImGui::Separator();
-        auto resl = res->GetMipLevel(level);
-
 
         m_soft_renderer.Resize(resl.Width(), resl.Height());
         m_soft_renderer.Update(resl);
@@ -1452,7 +1453,6 @@ inline void AddRenderMenuSubMenue() {
     m_rasterizer_3d.SetTiledRenderingEnabled(m_use_tile_base_rendering);
 }
 
-
 inline void UpdateRenderMovement(bool reset_mouse = false) {
 
     static int m_mouse_x = -1;
@@ -1574,6 +1574,7 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     }
 
 }
+
 inline void RenderWindow(bool& m_software_renderer_visible)
 {
 

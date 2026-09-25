@@ -5,6 +5,7 @@
 #include "RayPlaneLine.h"
 #include "Clipping.h"
 #include "AABBox.h"
+#include "Texture.h"
 
 #include <vector>
 #include <memory>
@@ -56,7 +57,7 @@ namespace ng
         {
             using Plane = math::RayPlaneLine<3, T>;
             using Vertex = ng::geometry::Vertex<T>;
-
+            ng::renderer::gfx::Texture texture;
             std::vector<Vertex> verts;
             Plane plane;
 
@@ -74,6 +75,7 @@ namespace ng
                 poly.plane = Plane(v0.world(), v1.world(), v2.world());
                 poly.materialId = materialId;
                 poly.objectId = objectId;
+                
                 return poly;
             }
         };
@@ -122,6 +124,7 @@ namespace ng
             frontOut.objectId = backOut.objectId = poly.objectId;
             frontOut.flags = backOut.flags = poly.flags;
             frontOut.volumeId = backOut.volumeId = poly.volumeId;
+            frontOut.texture = backOut.texture = poly.texture;
 
             for (size_t i = 0; i < n; ++i)
             {

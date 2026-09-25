@@ -77,6 +77,7 @@ namespace ng::renderer::rasterizer {
 
         void End() {
             m_rasterizer.End();
+            m_worldTexViewCache.clear();
         }
 
         void PreSortObjs(bool enable)
@@ -244,28 +245,8 @@ namespace ng::renderer::rasterizer {
         }
         
 
-        // ------------------------------------------------------------
-        // RenderWorld
-        //
-        // Zeichnet die Welt aus VisCells + PVS:
-        //   1. Kamerazelle bestimmen, sichtbare Zellen aus dem PVS holen
-        //      (nur bei Zellwechsel neu, sonst aus dem Cache).
-        //   2. Pro Zelle: Frustum-Test gegen die Zell-AABB.
-        //   3. Verbleibende Zellen von VORN nach HINTEN sortieren
-        //      (wichtig fuer MOC/HZB).
-        //   4. Pro Zelle: MOC-/HZB-Test, dann alle Polygone zeichnen.
-        //      Polygone, die in mehreren Zellen stehen, werden pro Frame
-        //      nur einmal gezeichnet.
-        //
-        // bindMaterial(int materialId) wird aufgerufen, bevor ein Polygon mit
-        // geaenderter Material-Id gezeichnet wird (Textur setzen o.ae.).
-        // Statistik: siehe cells_* in RenderStatistics.
-        //
-        // Steht die Kamera in keiner begehbaren Zelle, werden alle Zellen
-        // betrachtet.
-        // ------------------------------------------------------------
         template <class MaterialBinder>
-        void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
             MaterialBinder&& bindMaterial)
         {
             UpdateCameraPos();
@@ -297,6 +278,12 @@ namespace ng::renderer::rasterizer {
             {
                 m_worldWarned = false;
             }
+
+
+            struct PreRenderPolys {
+                int32_t cell;
+                std::vector< int32_t> polys;
+            };
 
             const int32_t cell = pvsMatches ? cells.FindCell(m_camera_pos) : -1;
 
@@ -344,6 +331,19 @@ namespace ng::renderer::rasterizer {
                 m_worldStampValue = 1;
             }
 
+            // NEU: eigener, unabhaengiger Stempel-Puffer fuer Extra-Polygone.
+            // extrapolys ist ein ANDERES Array mit eigener Indexzaehlung - darf
+            // sich NICHT den Puffer/Stempel mit den normalen Polygonen teilen,
+            // sonst kollidieren Index i (normal) und Index i (extra) miteinander.
+            if (m_worldExtraPolyStamp.size() != extrapolys.size())
+                m_worldExtraPolyStamp.assign(extrapolys.size(), 0u);
+
+            if (++m_worldExtraStampValue == 0)
+            {
+                std::fill(m_worldExtraPolyStamp.begin(), m_worldExtraPolyStamp.end(), 0u);
+                m_worldExtraStampValue = 1;
+            }
+
             m_statistics.cells_in_pvs += (uint32_t)m_worldVisCells.size();
 
             if (m_culling_mode & CULL_FRUSTUM)
@@ -355,7 +355,9 @@ namespace ng::renderer::rasterizer {
             for (int32_t c : m_worldVisCells)
             {
                 if (c < 0 || (size_t)c >= cellCount) continue;
-                if (cells.CellPolygons(c).empty()) continue;
+                //if (cells.CellPolygons(c).empty()) continue;
+                if (cells.CellPolygons(c).empty() && cells.CellExtraPolygons(c).empty())
+                    continue;
 
                 m_statistics.cells_with_geometry++;
 
@@ -383,6 +385,60 @@ namespace ng::renderer::rasterizer {
             bool haveMaterial = false;
             int lastMaterial = 0;
 
+            // Sicherheitsnetz: zu Beginn IMMER erzwingen, dass beim ersten
+            // Polygon neu gebunden wird - unabhaengig davon, was ein vorheriger
+            // Frame oder anderer Code (z.B. Debug-Code in Render()) zuletzt in
+            // state.diffuseTex hinterlassen hat.
+            m_worldHaveDirectTexture = false;
+
+            auto bindPolygonTexture = [&](const auto& poly)
+                {
+                    if (poly.texture)
+                    {
+                        // Identitaet der Textur ueber den rohen Resource-Zeiger.
+                        const void* key = static_cast<const void*>(poly.texture.get());
+
+                        if (!m_worldHaveDirectTexture || m_worldLastDirectTextureKey != key)
+                        {
+                            auto it = m_worldTexViewCache.find(key);
+                            if (it == m_worldTexViewCache.end())
+                            {
+                                ng::renderer::rasterizer::TextureView view;
+                                view.texture = poly.texture; // haelt die Resource zusaetzlich am Leben
+                                it = m_worldTexViewCache.emplace(key, std::move(view)).first;
+                            }
+
+                            ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
+                            state.diffuseTex = &it->second;   // stabile Adresse, ueberlebt End()
+                            state.flags |= ng::renderer::rasterizer::RASTER_TEXTURE;
+                            m_rasterizer.SetState(state);
+
+                            m_worldLastDirectTextureKey = key;
+                            m_worldHaveDirectTexture = true;
+                        }
+                        haveMaterial = false;
+                    }
+                    else
+                    {
+                        if (!haveMaterial || poly.materialId != lastMaterial)
+                        {
+                            bindMaterial(poly.materialId);
+                            lastMaterial = poly.materialId;
+                            haveMaterial = true;
+                        }
+
+                        if (m_worldHaveDirectTexture)
+                        {
+                            ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
+                            state.flags &= ~ng::renderer::rasterizer::RASTER_TEXTURE;
+                            state.diffuseTex = nullptr;
+                            m_rasterizer.SetState(state);
+                            m_worldHaveDirectTexture = false;
+                        }
+                    }
+            
+                
+                };
             
 
             for (const auto& entry : m_worldCellOrder)
@@ -412,7 +468,14 @@ namespace ng::renderer::rasterizer {
 
                 for (uint32_t pi : cells.CellPolygons(c))
                 {
-                    if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                    if (pi >= polys.size())
+                    {
+                        printf("[RenderWorld] UNGUELTIGER Polygon-Index: pi=%u, polys.size()=%zu (Zelle %d)\n",
+                            pi, polys.size(), c);
+                        continue;
+                    }
+
+                        if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
                     m_worldPolyStamp[pi] = m_worldStampValue;
 
                     const auto& poly = polys[pi];
@@ -424,27 +487,10 @@ namespace ng::renderer::rasterizer {
 
                     if (verts2d.size() < 3) continue;
 
-                    if (!haveMaterial || poly.materialId != lastMaterial)
-                    {
-                        bindMaterial(poly.materialId);
-                        lastMaterial = poly.materialId;
-                        haveMaterial = true;
+                    bindPolygonTexture(poly);
 
-                    }
-                    if (poly.materialId == 0) {
+                    m_rasterizer.DrawPolygon(verts2d);
 
-                        ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
-                        state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_TEST;
-                        state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
-                        state.flags |= ng::renderer::rasterizer::RASTER_WOBBLE;
-                        state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
-                        state.materialAlpha = 0.5;
-                        m_rasterizer.PushState();
-                        m_rasterizer.SetState(state);
-                        m_rasterizer.DrawPolygon(verts2d);
-                        m_rasterizer.PopState();
-                    }
-                    else  m_rasterizer.DrawPolygon(verts2d);
                     // Opake Welt occludiert (wie bei RenderMesh)
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                         !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
@@ -454,16 +500,18 @@ namespace ng::renderer::rasterizer {
 
                     m_statistics.polys_rendered++;
                 }
-
-                
-//////////////////////////////////////// EXTRA POLYS ////////////////////////////////////////////////////////
                 m_post_render_poyls.insert(m_post_render_poyls.end(), cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
             }
 
             for (uint32_t pi : m_post_render_poyls)
             {
-                if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
-                m_worldPolyStamp[pi] = m_worldStampValue;
+                if (pi >= extrapolys.size())
+                {
+                    printf("[RenderWorld] UNGUELTIGER Extra-Polygon-Index: pi=%u, extrapolys.size()=%zu\n",
+                        pi, extrapolys.size());
+                    continue;
+                }
+
 
                 const auto& poly = extrapolys[pi];
 
@@ -474,13 +522,8 @@ namespace ng::renderer::rasterizer {
 
                 if (verts2d.size() < 3) continue;
 
-                if (!haveMaterial || poly.materialId != lastMaterial)
-                {
-                    bindMaterial(poly.materialId);
-                    lastMaterial = poly.materialId;
-                    haveMaterial = true;
+                bindPolygonTexture(poly);
 
-                }
                 if (poly.materialId == 0) {
 
                     ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
@@ -501,11 +544,18 @@ namespace ng::renderer::rasterizer {
                 {
                     m_rasterizer.DrawOcclusionPolygon(verts2d);
                 }
-
+                
                 m_statistics.polys_rendered++;
             }
 
-
+            
+            // Sicherheitsnetz: nach RenderWorld darf state.diffuseTex NIE mehr auf
+            // m_worldTexView zeigen bleiben, wenn das letzte gezeichnete Polygon
+            // eine direkte Textur hatte - andere Codepfade (z.B. End(), andere
+            // Render-Funktionen) koennten den State sonst mit einer inzwischen
+            // veralteten Textur-Referenz weiterverwenden. m_worldTexView selbst
+            // bleibt gueltig (Member), aber ihr Inhalt (Texture-shared_ptr) wird
+            // beim naechsten RenderWorld-Aufruf ohnehin ueberschrieben.
         }
 
         // Ohne Material-Callback
@@ -514,6 +564,22 @@ namespace ng::renderer::rasterizer {
             RenderWorld(cells, pvs, [](int) {});
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     
         // Muss aufgerufen werden, wenn VisCells/PVS neu gebaut wurden, ohne dass
         // sich ihre Adresse geaendert hat.
         inline void InvalidateWorldCache()
@@ -770,6 +836,17 @@ namespace ng::renderer::rasterizer {
         mutable bool m_update_frustum = true;
         mutable bool m_pre_zsort_objs = false;
         mutable bool m_occluder_pass = true;
+
+        ng::renderer::rasterizer::TextureView m_worldTexView;
+        ng::renderer::gfx::Texture m_worldLastDirectTexture;
+
+        std::vector<uint32_t> m_worldExtraPolyStamp;
+        uint32_t m_worldExtraStampValue = 0;
+
+        std::unordered_map<const void*, ng::renderer::rasterizer::TextureView> m_worldTexViewCache;
+        bool m_worldHaveDirectTexture = false;
+        const void* m_worldLastDirectTextureKey = nullptr;
+
 
         RenderStatistics m_statistics;
         uint8_t m_culling_mode = CULL_STANDARD;

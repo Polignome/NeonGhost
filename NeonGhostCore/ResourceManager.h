@@ -147,7 +147,19 @@ namespace ng {
 				T& operator *() { return *this->get()->GetPtr(); }
 
 
+				// NEU: ueberschreibt/versteckt das geerbte shared_ptr::operator bool.
+				// Prueft NICHT nur, ob ein Container existiert, sondern auch, ob
+				// der darin gehaltene Rohpointer tatsaechlich gueltig ist.
+				explicit operator bool() const
+				{
+					return this->get() != nullptr && this->get()->GetPtr() != nullptr;
+				}
 
+				// Praktisch fuer explizite Checks ohne Bool-Kontext
+				bool IsValid() const
+				{
+					return this->get() != nullptr && this->get()->GetPtr() != nullptr;
+				}
 
 
 				Resource& operator = (const Resource& res)
@@ -997,72 +1009,75 @@ namespace ng {
 				/*****************************************************/
 				inline void _dec(ResPtrContainer<T>* t, bool deletebyzero)
 				{
-					if (t == nullptr) return;
-					typename std::map<ResPtrContainer<T>*, TResInfo>::iterator it = m_uses.find(t);
-					assert(it != m_uses.end());
-					it->second.m_used--;
+					try {
+						typename std::map<ResPtrContainer<T>*, TResInfo>::iterator it = m_uses.find(t);
+						assert(it != m_uses.end());
+						it->second.m_used--;
 
 
-					assert(it->second.m_used >= 0);
+						assert(it->second.m_used >= 0);
 
 
-					if (it->second.m_used == 0 && it->second.m_attrib & DELETE_WHEN_UNUSED && deletebyzero == true)
-					{
+						if (it->second.m_used == 0 && it->second.m_attrib & DELETE_WHEN_UNUSED && deletebyzero == true)
+						{
 
-						typename std::map<ResPtrContainer<T>*, T*>::iterator ita = m_con_ptr.find(t);
-						assert(ita != m_con_ptr.end());
+							typename std::map<ResPtrContainer<T>*, T*>::iterator ita = m_con_ptr.find(t);
+							assert(ita != m_con_ptr.end());
 
-						if (ita->second != m_global_dummy_resource) {
-
-
-							typename std::map<T*, ResPtrContainer<T>*>::iterator itb = m_ptr_con.find(t->GetPtr());
-							assert(itb != m_ptr_con.end());
-							m_ptr_con.erase(itb);
-
-						}
+							if (ita->second != m_global_dummy_resource) {
 
 
-						//TLOG("Die resource wird laut attrib nicht mehr gebraucht und daher gelöscht");
-						typename std::map<ResPtrContainer<T>*, uint64_t>::iterator it2 = m_sptr_hash.find(t);
-						assert(it2 != m_sptr_hash.end());
-
-						m_uses.erase(it);
-						typename std::map<uint64_t, ResPtrContainer<T>*>::iterator it1 = m_hash_sptr.find(it2->second);
-						assert(it1 != m_hash_sptr.end());
-
-						typename std::map<uint64_t, std::string>::iterator it3 = m_hash_string.find(it2->second);
-						assert(it3 != m_hash_string.end());
-
-
-
-
-						m_con_ptr.erase(ita);
-
-						m_hash_sptr.erase(it1);
-						m_sptr_hash.erase(it2);
-						m_hash_string.erase(it3);
-
-
-						std::map<ResPtrContainer<T>*, T*> m_con_ptr;
-						if (t->GetPtr() != m_global_dummy_resource) t->DeletePtr();
-						else {
-							m_dummy_in_used_counter--;
-							assert(m_dummy_in_used_counter >= 0);
-							if (m_dummy_in_used_counter == 0)
-							{
-
-								delete m_global_dummy_resource;
-								m_global_dummy_resource = nullptr;
+								typename std::map<T*, ResPtrContainer<T>*>::iterator itb = m_ptr_con.find(t->GetPtr());
+								assert(itb != m_ptr_con.end());
+								m_ptr_con.erase(itb);
 
 							}
 
+
+							//TLOG("Die resource wird laut attrib nicht mehr gebraucht und daher gelöscht");
+							typename std::map<ResPtrContainer<T>*, uint64_t>::iterator it2 = m_sptr_hash.find(t);
+							assert(it2 != m_sptr_hash.end());
+
+							m_uses.erase(it);
+							typename std::map<uint64_t, ResPtrContainer<T>*>::iterator it1 = m_hash_sptr.find(it2->second);
+							assert(it1 != m_hash_sptr.end());
+
+							typename std::map<uint64_t, std::string>::iterator it3 = m_hash_string.find(it2->second);
+							assert(it3 != m_hash_string.end());
+
+
+
+
+							m_con_ptr.erase(ita);
+
+							m_hash_sptr.erase(it1);
+							m_sptr_hash.erase(it2);
+							m_hash_string.erase(it3);
+
+
+							std::map<ResPtrContainer<T>*, T*> m_con_ptr;
+							if (t->GetPtr() != m_global_dummy_resource) t->DeletePtr();
+							else {
+								m_dummy_in_used_counter--;
+								assert(m_dummy_in_used_counter >= 0);
+								if (m_dummy_in_used_counter == 0)
+								{
+
+									delete m_global_dummy_resource;
+									m_global_dummy_resource = nullptr;
+
+								}
+
+							}
+
+							delete t;
+
+
 						}
-
-						delete t;
-
+					}
+					catch (...) {
 
 					}
-
 
 				}
 

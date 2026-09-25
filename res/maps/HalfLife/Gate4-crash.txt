@@ -1,0 +1,51 @@
+OS:	Windows 11 Version 25H2
+Qt:	6.9.3
+GL_VENDOR:	NVIDIA Corporation
+GL_RENDERER:	NVIDIA GeForce RTX 4060/PCIe/SSE2
+GL_VERSION:	4.6.0 NVIDIA 591.86
+TrenchBroom Version:	2026.1
+TrenchBroom Build:	v2026.1 Release Win64
+Reason:	3765269347
+Stack trace (most recent call first):
+#0  0x00007ffcce7e4e6e in std::_Xbad_function_call
+#1  0x00007ff6ab8ff037 in public: bool __cdecl tb::ui::Action::enabled(class tb::ui::ActionExecutionContext const & __ptr64)const __ptr64
+#2  0x00007ff6ab8c930d in private: void __cdecl tb::ui::MapViewBase::updateActionStates(void) __ptr64
+#3  0x00007ff6ab8c8fec in private: void __cdecl tb::ui::MapViewBase::toolChanged(class tb::ui::Tool & __ptr64) __ptr64
+#4  0x00007ff6ab8e5467 in public: void __cdecl tb::Notifier<class tb::ui::Tool & __ptr64>::operator()<class tb::ui::Tool & __ptr64>(class tb::ui::Tool & __ptr64) __ptr64
+#5  0x00007ff6ab8ea772 in public: void __cdecl tb::ui::ToolBox::deactivateAllTools(void) __ptr64
+#6  0x00007ff6ab79ec14 in public: void __cdecl tb::Notifier<>::operator()<>(void) __ptr64
+#7  0x00007ff6ab80c55d in public: class kdl::result<void,struct kdl::result_error> __cdecl tb::ui::MapDocument::load(struct tb::mdl::EnvironmentConfig const & __ptr64,struct tb::mdl::GameInfo const & __ptr64,enum tb::mdl::MapFormat,class vm::bbox<double,3> const & __ptr64,class std::filesystem::path) __ptr64
+#8  0x00007ff6ab7d8fb1 in public: class kdl::result<void,struct kdl::result_error> __cdecl tb::ui::MapWindowManager::loadDocument(struct tb::mdl::GameInfo const & __ptr64,enum tb::mdl::MapFormat,class vm::bbox<double,3> const & __ptr64,class std::filesystem::path) __ptr64
+#9  0x00007ff6ab732fdc in `tb::ui::AppController::openDocument'::`2'::<lambda_3>::operator()
+#10 0x00007ff6ab73b31b in public: bool __cdecl tb::ui::AppController::openDocument(class std::filesystem::path const & __ptr64) __ptr64
+#11 0x00007ff6ab73b0dc in public: void __cdecl tb::ui::AppController::openDocument(void) __ptr64
+#12 0x00007ff6ab8ff08d in public: void __cdecl tb::ui::Action::execute(class tb::ui::ActionExecutionContext & __ptr64)const __ptr64
+#13 0x00007ff6ab7bfd91 in std::_Func_impl_no_alloc<`tb::ui::MapWindow::createMenus'::`2'::<lambda_1>,void,tb::ui::Action const &>::_Do_call
+#14 0x00007ffb9cb49860 in QObject::qt_static_metacall
+#15 0x00007ffb9cb4c583 in QMetaObject::activate
+#16 0x00007ffb9877c860 in QAction::activate
+#17 0x00007ffb9d5c580e in QMenu::actionGeometry
+#18 0x00007ffb9d5c55c0 in QMenu::actionGeometry
+#19 0x00007ffb9d5cbc51 in QMenu::mouseReleaseEvent
+#20 0x00007ffb9d4577cf in QWidget::event
+#21 0x00007ffb9d5c6fdf in QMenu::event
+#22 0x00007ffb9d413b00 in QApplicationPrivate::notify_helper
+#23 0x00007ffb9d411c87 in QApplication::notify
+#24 0x00007ffb9cb08330 in QCoreApplication::notifyInternal2
+#25 0x00007ffb9d416645 in QApplicationPrivate::sendMouseEvent
+#26 0x00007ffb9d47d8c4 in QWidgetRepaintManager::updateStaticContentsSize
+#27 0x00007ffb9d47b86d in QWidgetRepaintManager::updateStaticContentsSize
+#28 0x00007ffb9d413b00 in QApplicationPrivate::notify_helper
+#29 0x00007ffb9d412bf8 in QApplication::notify
+#30 0x00007ffb9cb08330 in QCoreApplication::notifyInternal2
+#31 0x00007ffb983eb8f3 in QGuiApplicationPrivate::processMouseEvent
+#32 0x00007ffb9844a45a in QWindowSystemInterface::sendWindowSystemEvents
+#33 0x00007ffb9cc9e45f in QEventDispatcherWin32::processEvents
+#34 0x00007ffb98707b28 in QWindowsGuiEventDispatcher::processEvents
+#35 0x00007ffb9cb0ef83 in QEventLoop::exec
+#36 0x00007ffb9cb069c9 in QCoreApplication::exec
+#37 0x00007ff6ab715a10 in main
+#38 0x00007ff6ac20378f in qtEntryPoint
+#39 0x00007ff6ac1fb555 in __scrt_common_main_seh
+#40 0x00007ffd04f4cd86 in BaseThreadInitThunk
+#41 0x00007ffd0644caeb in RtlUserThreadStart

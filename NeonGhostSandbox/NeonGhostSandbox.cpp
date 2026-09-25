@@ -117,18 +117,18 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 
 
 
-
 inline void Render() {
     static double totalTime = 0.0;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_old_pos;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_pos;
-    static ng::math::Matrix<3, 1, NG_MATH_FLOAT> radius(160.0 * 10, 360.0 * 10, 360.0* 10);
 
     double deltaTime = ImGui::GetIO().DeltaTime;
     totalTime += deltaTime;                      // <-- NEU: aufaddieren statt Delta direkt nutzen
 
     static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
-      
+     
+    
+
     // erwartet: ≈ (0,0,0,1)
 
     static bool first_time = true;
@@ -140,6 +140,7 @@ inline void Render() {
         m_cam_old_pos =  m_camera.position();
     }
 	
+
 
     {
         m_cam_pos = m_camera.position();
@@ -159,16 +160,16 @@ inline void Render() {
     
     m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
     m_rasterizer_3d.State().flatColor = RGB(255, 255, 0);
-    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE;// | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
 
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
+  
+    /*
     ng::renderer::gfx::Texture testtexture = ng::resource::TextureResourceManager::GetResource("Texture1", true);
-
     ng::renderer::rasterizer::TextureView textview;
     textview.texture = testtexture;
-
     m_rasterizer_3d.State().diffuseTex = &textview;
-
+    */
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
 
     m_render_pipeline_3d.ModelViewMatrix() = m_camera.ViewMatrix();
@@ -178,20 +179,27 @@ inline void Render() {
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
 
+
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR | ng::renderer::rasterizer::RASTER_TEXTURE;
     //  for (auto bp : m_map_brush_polys) m_render_pipeline_3d.RenderPolygon(bp.verts());
     //  m_render_pipeline_3d.RenderMesh(m_mesh_obj);
     //  RenderBsp(m_bsp);
-
+    /*
     m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, [&](int mat)
         {
             m_rasterizer_3d.State().diffuseTex=&textview;
 
         });
+    */
+    
+    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs);
+    
     m_render_pipeline_3d.End();
-      
+    
+
    
-    if (m_use_after_fx )mgr.Apply(totalTime);
+
+    if (m_use_after_fx)mgr.Apply(totalTime);
 
   
     float inp = (float)m_render_pipeline_3d.GetStatistics().polys_in;
@@ -209,6 +217,7 @@ inline void Render() {
     addValue(m_fps_count, (float)m_fps_counter.FPS(), MAX_POLY_COUNTS);
     addValue(m_out_cellscount, cc, m_render_pipeline_3d.GetStatistics().cells_in_pvs);
    
+    
 
 }
 
@@ -329,27 +338,34 @@ void InitStuff() {
 }
 
 
-bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::string& name) {
+bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::string& name) 
+{
 
     printf("[WAD] Load Texture %s", name.c_str());
     if (ng::resource::TextureResourceManager::IsResourceInManager(name)) return true;
-    
-    try {
 
+    try {
         ng::map::texture::Wad3File::Texture texture = wad.GetTexture(name);
-        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, (unsigned char*)texture.pixels.data(), texture.width, texture.height);
+
+        // texture.pixels: width*height Palettenindizes (1 Byte/Pixel)
+        // texture.palette: 256 * 3 Bytes (RGB), siehe WAD3-Format
+        std::vector<uint8_t> rgba(texture.width * texture.height * 4);
+
+
+
+        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(
+            name, (unsigned char*)texture.pixels.data(), texture.width, texture.height);
+
         printf("...OK\n");
     }
     catch (const std::runtime_error& error) {
         std::string help = error.what();
         printf("...ERROR\n");
-        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, (unsigned char*)nullptr,0,0);
-
+        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, nullptr, 0, 0);
+        return false;
     }
     return true;
 }
-
-
 
 int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
@@ -461,6 +477,8 @@ int main(int argc, char** argv) {
             }
         }
 
+
+
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
@@ -468,6 +486,7 @@ int main(int argc, char** argv) {
                 if (ImGui::MenuItem("Quit")) m_exit_program = true;
                 ImGui::EndMenu();
             }
+
             if (ImGui::BeginMenu("Tools")) {
                 bool temp = m_tools_font_window;
                 if (ImGui::MenuItem("View Font")) m_tools_font_window = true;
@@ -526,6 +545,7 @@ int main(int argc, char** argv) {
                         ImGui::EndMainMenuBar();
             
         }
+
                 
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
@@ -549,7 +569,7 @@ int main(int argc, char** argv) {
                 ng::map::HalfLife hl_map;
                 hl_map.load(filename);
                 ng::map::Data<NG_MATH_FLOAT> data;
-                data = hl_map;                
+                data = hl_map;
 
 
 
@@ -558,71 +578,71 @@ int main(int argc, char** argv) {
 
 
                 for (auto n : data.m_texture_names) {
-                    
                     ConvertfromWad(m_wad_file, n);
                 }
 
-
-
-
-
-
-
-
-                auto brush=data.ExtractBrushes();
+                auto brush = data.ExtractBrushes();
                 brush = ng::map::csg::MakeUnion(brush);
-
-
-
 
                 std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
                 std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> extra_polys;
-                auto tnames = m_wad_file.GetTextureNames();
 
-                
+
+
                 auto soild_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush);
                 for (auto p : soild_faces) {
+                    auto name = data.m_id_text[p.textureIndex()];
+                    ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
                     for (size_t i = 1; i < p.verts().size() - 1; ++i)
                     {
                         ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 1);
+                        poly.texture = texture;
                         polys.push_back(poly);
                     }
                 }
-                                
-                auto liquit_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush,ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID);
+
+
+
+                auto liquit_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush, ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID);
                 for (auto p : liquit_faces) {
+                    auto name = data.m_id_text[p.textureIndex()];
+                    ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
+
+
                     for (size_t i = 1; i < p.verts().size() - 1; ++i)
                     {
                         ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 0);
-                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i+1], p.verts()[i], p.verts()[0], 0);
+                        poly.texture = texture;
                         extra_polys.push_back(poly);
+
+                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i+1], p.verts()[i], p.verts()[0], 0);
+                        poly2.texture = texture;
                         extra_polys.push_back(poly2);
                     }
                 }
-                
 
-                auto aabb=ng::bsp::ComputeSceneBounds(polys);
-                auto sky =ng::bsp::GenerateSkyboxPolygons(aabb,(NG_MATH_FLOAT) 100);
+                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                auto aabb = ng::bsp::ComputeSceneBounds(polys);
+                auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (NG_MATH_FLOAT)100);
 
                 for (auto p : sky)polys.push_back(p);
+                
                 m_bsp.Build(polys);
                 m_bsp.InsertExtraPolygons(extra_polys);
-                
+
                 m_num_bsp_leafs = m_bsp.GetLeaves().size();
                 m_bsp.BuildPortals();
-                
 
                 auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
                 m_bsp.RemoveReachedPolygons(reached);     // Polygone in allen erreichten Leaves loeschen
-                
+
                 auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
                 auto visibleextra = m_bsp.CollectRemainingExtraPolygons(); // Schritt 9
+                //for (auto o : visibleextra) visible.push_back(o);
 
-                
                 m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
 
-                
                 m_cells.Build(visible, m_vo);
                 m_cells.InsertExtraPolygons(visibleextra);
 
@@ -632,19 +652,24 @@ int main(int argc, char** argv) {
                 po.skipVoidLeaves = true;
                 po.requirePolygonsInComponent = true;
                 po.minPortalArea = 0.1;
-                m_pvs.Build(m_cells.Tree(),po);            // PVS auf den groben Zellen
+                m_pvs.Build(m_cells.Tree(), po);            // PVS auf den groben Zellen
 
                 // Rendering
-            
+
             }
         }
-                       
+                
+
                 
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         SwapScreen(clear_color_with_alpha);
     }
 
+     m_bsp= ng::bsp::BSPTree<NG_MATH_FLOAT>();
+     m_pvs= ng::bsp::PVS<NG_MATH_FLOAT>();
+     m_vo= ng::bsp::VisCellOptions<NG_MATH_FLOAT>();
+     m_cells = ng::bsp::VisCells<NG_MATH_FLOAT>();
 
     ng::resource::Manager::Flush();
 

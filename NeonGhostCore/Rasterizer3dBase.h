@@ -142,7 +142,9 @@ namespace ng::renderer::rasterizer
     // -------------------------------------------------------------
     struct TextureView
     {
-        ng::renderer::gfx::Texture texture; // Resource-Handle - billig zu kopieren/halten
+        ng::renderer::gfx::Texture texture;
+        
+        // Resource-Handle - billig zu kopieren/halten
 
         template<class T>
         inline uint32_t SampleNearestLevel(T u, T v, int level) const
@@ -164,10 +166,10 @@ namespace ng::renderer::rasterizer
         // rho = Texel-pro-Pixel-Verhaeltnis, bezogen auf die Originalgroesse
         // (Level 0) - die Mip-Kette selbst halbiert sich pro Stufe, das
         // muss hier nicht nochmal nachgerechnet werden.
+        
         template<class T>
         inline int SelectMipLevel(T dudx, T dvdx, T dudy, T dvdy) const
         {
-            
             
             if (!texture) return 0;
             int w = texture->Width(), h = texture->Height();
@@ -179,15 +181,6 @@ namespace ng::renderer::rasterizer
             return std::clamp(level, 0, (int)texture->GetMipLevels());
             
         }
-
-        // Rueckwaertskompatibel: samplet immer Level 0 (Original).
-      
-   /*     template<class T>
-        inline uint32_t SampleNearest(T u, T v) const
-        {
-            return SampleNearestLevel(u, v, 0);
-        }
-     */   
     };
 
     
@@ -253,6 +246,7 @@ namespace ng::renderer::rasterizer
         uint32_t flatColor = 0xffffffffu; // genutzt wenn weder VERTEXCOLOR noch TEXTURE
         uint32_t objectIndex = 0;
         T materialAlpha = (T)1;            // zusaetzlich zur Vertex-/Textur-Alpha
+        
 
         const TextureView* diffuseTex = nullptr;
         const TextureView* lightmapTex = nullptr;
@@ -293,6 +287,15 @@ namespace ng::renderer::rasterizer
     }
   
     template<class T>
+    inline T PerspectiveDerivative(T value, T invW, T dValue, T dInvW)
+    {
+        T invW2 = invW * invW;
+        T result = (dValue * invW - value * dInvW) * invW2;
+        return std::isfinite((double)result) ? result : T(0);
+    }
+    
+    /*
+    template<class T>
     inline T PerspectiveDerivative(
         T value,
         T invW,
@@ -303,7 +306,7 @@ namespace ng::renderer::rasterizer
 
         return (dValue * invW - value * dInvW) * invW2;
     }
-
+    */
     template<class T>
         inline uint32_t ColorTexture(const Fragment<T>& f, const DrawState<T>& st)
     {

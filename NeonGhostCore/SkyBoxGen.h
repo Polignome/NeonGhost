@@ -52,7 +52,6 @@ namespace ng
             int materialId = -1)
         {
             using Vertex = ng::geometry::Vertex<T>;
-
             if (margin > static_cast<T>(0))
                 bounds += margin; // AABBox::operator+= VERGROESSERT die Box
 
@@ -78,7 +77,7 @@ namespace ng
 
                     v2.world() = face[i + 1];
                     v2.texture() = uv[i + 1];
-                    auto tri = BSPPolygon<T>::FromTriangle(v2, v1, v0, materialId);
+                    auto tri = BSPPolygon<T>::FromTriangle(v2, v1, v0,  materialId);
                     tri.flags = POLY_FLAG_OUT_SIDE;
                     result.push_back(tri);
                 }

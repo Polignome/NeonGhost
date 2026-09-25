@@ -185,7 +185,7 @@ namespace ng {
             
             if (width* height<=0 ||buffer == nullptr) return Add(resname, nullptr, attrib);
             ng::renderer::buffers::PixelBufferRGBA raw(width, height);
-            memmove(raw.GetRawBuffer(), buffer, raw.Size());
+            memmove(raw.GetRawBuffer(), buffer, width*height*sizeof(uint32_t));
             _Texture* img = new _Texture(raw);
             
             return Add(resname, img, attrib);

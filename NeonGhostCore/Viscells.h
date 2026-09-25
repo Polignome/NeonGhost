@@ -447,7 +447,7 @@ namespace ng
                         const Plane plane = n->GetPlane();
                         BSPNode<T>* f = n->GetFrontNode().get();
                         BSPNode<T>* b = n->GetBackNode().get();
-
+                        /*
                         switch (ClassifyVerts(plane, poly.verts, eps))
                         {
                         case Plane::FRONT:
@@ -474,6 +474,36 @@ namespace ng
                             stack.push_back(b);
                             break;
                         }
+                        */
+
+                        switch (ClassifyVerts(plane, poly.verts, eps))
+                        {
+                        case Plane::FRONT:
+                            stack.push_back(f);
+                            break;
+
+                        case Plane::BACK:
+                            stack.push_back(b);
+                            break;
+
+                        case Plane::PLANAR:
+                            // Wie bei BSPTree::InsertExtraPolygons: ein Polygon exakt in der
+                            // Splitter-Ebene ist von BEIDEN Seiten aus sichtbar (z.B. eine
+                            // Wasseroberflaeche, die zufaellig koplanar zu einer strukturellen
+                            // Zellgrenze liegt). Nur EINE Seite zu waehlen fuehrt dazu, dass
+                            // das Polygon aus der jeweils anderen Zelle komplett unsichtbar
+                            // wird - das genaue Symptom "Extra-Polygone fehlen teilweise".
+                            stack.push_back(f);
+                            stack.push_back(b);
+                            break;
+
+                        default: // SPANNING
+                            stack.push_back(f);
+                            stack.push_back(b);
+                            break;
+                        }
+
+
                     }
                 }
             }
