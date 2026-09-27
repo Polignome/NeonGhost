@@ -237,7 +237,7 @@ namespace ng {
 				// radius-basierten Falloff (siehe LightFalloff) reicht als
 				// Startwert eine Wurzel-Skalierung - spaeter pro Szene
 				// kalibrieren.
-				light.radius = (T)std::sqrt(std::max((T)1, light.brightness)) * (T)8;
+				light.radius = light.brightness;///(T)std::sqrt(std::max((T)1, light.brightness)) * (T)8;
 
 				m_lights.push_back(light);
 

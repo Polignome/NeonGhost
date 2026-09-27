@@ -83,7 +83,7 @@ inline  uint32_t RGBA(uint8_t r, uint8_t  g, uint8_t  b, uint8_t  a) {
 #endif
 inline  uint32_t RGB(uint8_t r, uint8_t  g, uint8_t  b)
 {
-	return RGBA(r, b, g, 0xff);
+	return RGBA(r, g, b, 0xff);
 }
 
 

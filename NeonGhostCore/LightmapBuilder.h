@@ -800,7 +800,7 @@ namespace ng::lightmap
 
         for (int bounce = 0; bounce < opt.bounces; ++bounce)
         {
-            printf("[Radiosity] Bounce %d / %d ...\r", bounce + 1, opt.bounces);
+            printf("[Radiosity] Bounce %d / %d ...\n", bounce + 1, opt.bounces);
 
             for (size_t i = 0; i < patches.size(); ++i)
             {

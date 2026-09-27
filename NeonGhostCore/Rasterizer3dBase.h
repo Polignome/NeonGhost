@@ -340,7 +340,7 @@ namespace ng::renderer::rasterizer
         inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
         {
             
-            
+                        
             uint32_t base = ColorTexture(f, st);
             if (!st.lightmapTex) return base;
             // WICHTIG: Lightmap immer auf Mip-Level 0 sampeln, NIE automatisch

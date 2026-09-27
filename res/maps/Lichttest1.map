@@ -168,22 +168,13 @@
 // entity 1
 {
 "classname" "light"
-"_light" "255 0 1 255"
-"style" "0"
-"_fade" "1.0"
-"_falloff" "1"
-"origin" "-160 -24 104"
-}
-// entity 2
-{
-"classname" "light"
-"_light" "0 255 2 255"
+"_light" "0 255 2 800"
 "style" "0"
 "_fade" "1.0"
 "_falloff" "1"
 "origin" "-160 64 104"
 }
-// entity 3
+// entity 2
 {
 "classname" "light"
 "_light" "0 0 255 255"
@@ -191,4 +182,13 @@
 "_fade" "1.0"
 "_falloff" "1"
 "origin" "-160 152 104"
+}
+// entity 3
+{
+"classname" "light"
+"_light" "255 0 1 800"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "1"
+"origin" "-160 -24 104"
 }

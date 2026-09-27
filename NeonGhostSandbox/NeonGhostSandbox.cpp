@@ -33,6 +33,7 @@
 #pragma comment(lib, "NeonGhostCore.lib")
 #pragma comment(lib, "FreeImage.lib")
 
+
 NG_BIND_MANAGER
 
 #define NG_USE_STATIC_MESH_ONLY
@@ -662,6 +663,7 @@ int main(int argc, char** argv) {
                 // bis zum Rendering erhalten.
                 // ------------------------------------------------------------
                                 
+
 
                         if (m_build_lightmaps) {
                             auto lights = ng::map::ToLightSources<NG_MATH_FLOAT>(data.GetLights());
