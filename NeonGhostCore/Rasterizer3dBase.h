@@ -336,7 +336,28 @@ namespace ng::renderer::rasterizer
 
         return RGBA(tr, tg, tb, ta);
     }
+        template<class T>
+        inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
+        {
+            uint32_t base = ColorTexture(f, st);
 
+            // WICHTIG: Lightmap immer auf Mip-Level 0 sampeln, NIE automatisch
+            // hochstufen. Der Atlas packt viele voneinander unabhaengige
+            // Polygon-Patches nebeneinander; eine Mip-Kette wuerde beim
+            // 2x2-Boxfilter Texel benachbarter, thematisch fremder Patches
+            // vermischen ("Bleeding"), sobald ein Patch an der Atlas-Nahtstelle
+            // liegt. Level 0 ist bei Lightmaps unkritisch, da sie ohnehin schon
+            // niedrig aufgeloest und weichgezeichnet sind.
+            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
+
+            uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
+            uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
+            uint32_t r = std::min(255u, (br * lr) / 255u);
+            uint32_t g = std::min(255u, (bg * lg) / 255u);
+            uint32_t b = std::min(255u, (bb * lb) / 255u);
+            return (ba << 24) | (r << 16) | (g << 8) | b;
+        }
+        /*
     template<class T>
     inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
     {
@@ -352,7 +373,7 @@ namespace ng::renderer::rasterizer
         uint32_t b = std::min(255u, (bb * lb) / 255u);
         return (ba << 24) | (r << 16) | (g << 8) | b;
     }
-
+    */
     template<class T>
     inline void SelectColorFn_Impl(uint32_t flags, uint32_t(**out)(const Fragment<T>&, const DrawState<T>&))
     {

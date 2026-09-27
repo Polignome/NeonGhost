@@ -1,197 +1,234 @@
 #include "pch.h"
-
+#include <sstream> 
 #include "HalfLife.h"
-
+#define	SWAP_AXIS
 using namespace ng::map;
 
-unsigned long  HalfLife::StepStrings(const std::vector<std::string> &str, unsigned long index)
+unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsigned long index)
 {
 	if (index >= str.size()) return (unsigned long)str.size();
-	
+
 	static bool  m_brush = false;
-	static bool  m_light = false;
 	while (index < (unsigned long)str.size())
 	{
 
 		std::string s = str[index];
-	      
+
 		if (s == "{")
 		{
 			std::string name = "Noname";
+
 			if (getActiveEntity().name == "world") {
-				name = "solid"; m_brush = true;
+				name = "solid";
+				m_brush = true;
 			}
-			if (getActiveEntity().name == "light") {
-				m_light = true;
-				name = "light";
-			}
-
-
 			BeginEntity(name);
-
 			index = StepStrings(str, index + 1);
 		}
 
 		if (s == "}")
 		{
+			// NEU: Bevor die Entity geschlossen wird, pruefen ob es ein
+			// Lichtquellen-Entity war (klassisch "light", teils auch
+			// "light_spot", "light_environment" - je nach Compiler/Editor).
+			// getActiveEntity().name traegt bereits den classname-Wert, da
+			// SetActiveEntityName(s2) weiter unten genau das setzt.
+			const TEntity& active = getActiveEntity();
+			const std::string entName = active.name;
+
+			if (entName == "light" || entName == "light_spot" || entName == "light_environment")
+			{
+				// Kleine lokale Hilfsfunktion: sucht einen Parameter nach
+				// Namen in der aktuellen Entity und gibt seine values[]
+				// als einen mit Leerzeichen verbundenen String zurueck
+				// ("x y z" bzw. "r g b brightness"), leer falls nicht
+				// vorhanden. TEntityParam::values wird von AddParameter()
+				// befuellt - siehe dort, wie value in values[] aufgeteilt
+				// wird.
+				auto findParam = [&active](const std::string& name) -> std::string
+					{
+						for (const auto& p : active.parameter)
+						{
+							if (p.name != name) continue;
+
+							std::string joined;
+							for (size_t i = 0; i < p.values.size(); ++i)
+							{
+								joined += p.values[i];
+								if (i + 1 < p.values.size()) joined += " ";
+							}
+							return joined;
+						}
+						return std::string();
+					};
+
+				RawLight rl;
+				rl.origin = findParam("origin"); // ist bereits achsen-korrigiert (s.u.)
+				rl.light = findParam("_light");
+
+				if (rl.light.empty())
+					rl.light = findParam("light"); // manche Editoren nutzen "light" statt "_light"
+
+				if (!rl.origin.empty())
+					m_rawLights.push_back(std::move(rl));
+				else
+					printf("[HalfLife] Licht-Entity '%s' ohne 'origin' uebersprungen\n", entName.c_str());
+			}
+
 			if (m_brush) m_brush = false;
-			if (m_light) m_light = false;
 			EndEntity();
 			return index;
 		}
 
+		if (m_brush) {
+			if (s == "(") {
 
-		if (s == "(" && m_brush) {
-
-			BeginEntity("side");
+				BeginEntity("side");
 
 
 
-			if (index + 30 >= str.size()) {
-				SetError("String zur Kurz");
-				return (unsigned long)str.size() + 1;
-			}
-			if (str[index + 4] != ")") {
-				SetError("( a b c >)< ( a b c ) ( a b c ) ");
-				return (unsigned long)str.size() + 1;
-			}
-			if (str[index + 5] != "(") {
-				SetError("( a b c ) >(< a b c ) ( a b c ) ");
-				return (unsigned long)str.size() + 1;
-			}
-			if (str[index + 9] != ")") {
-				SetError("( a b c ) ( a b c >)< ( a b c ) ");
-				return (unsigned long)str.size() + 1;
-			}
-			if (str[index + 10] != "(") {
+				if (index + 30 >= str.size()) {
+					SetError("String zur Kurz");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 4] != ")") {
+					SetError("( a b c >)< ( a b c ) ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 5] != "(") {
+					SetError("( a b c ) >(< a b c ) ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 9] != ")") {
+					SetError("( a b c ) ( a b c >)< ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 10] != "(") {
 
-				SetError("( a b c ) ( a b c ) >(< a b c )! " + str[index + 10]);
-				return (unsigned long)str.size() + 1;
-			}
-			if (str[index + 14] != ")") {
-				SetError("( a b c ) ( a b c ) ( a b c >)< ");
-				return (unsigned long)str.size() + 1;
-			}
+					SetError("( a b c ) ( a b c ) >(< a b c )! " + str[index + 10]);
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 14] != ")") {
+					SetError("( a b c ) ( a b c ) ( a b c >)< ");
+					return (unsigned long)str.size() + 1;
+				}
 
-			{
-				std::string v1 = "";
-#define	SWAP_AXIS
+				{
+					std::string v1 = "";
+
 #ifdef SWAP_AXIS
-				v1 += str[index + 0]; v1 += " ";// ( 
-				v1 += str[index + 2]; v1 += " ";// a
-				v1 += str[index + 3]; v1 += " ";// b
-				v1 += str[index + 1]; v1 += " ";// a
-				v1 += str[index + 4]; v1 += " ";// )
+					v1 += str[index + 0]; v1 += " ";// ( 
+					v1 += str[index + 2]; v1 += " ";// a
+					v1 += str[index + 3]; v1 += " ";// b
+					v1 += str[index + 1]; v1 += " ";// a
+					v1 += str[index + 4]; v1 += " ";// )
 
-				v1 += str[index + 5]; v1 += " ";// (
-				v1 += str[index + 7]; v1 += " ";// a
-				v1 += str[index + 8]; v1 += " ";// b
-				v1 += str[index + 6]; v1 += " ";// a
-				v1 += str[index + 9]; v1 += " ";// )
+					v1 += str[index + 5]; v1 += " ";// (
+					v1 += str[index + 7]; v1 += " ";// a
+					v1 += str[index + 8]; v1 += " ";// b
+					v1 += str[index + 6]; v1 += " ";// a
+					v1 += str[index + 9]; v1 += " ";// )
 
-				v1 += str[index + 10]; v1 += " ";// (
-				v1 += str[index + 12]; v1 += " ";// a
-				v1 += str[index + 13]; v1 += " ";// b
-				v1 += str[index + 11]; v1 += " ";// a
-				v1 += str[index + 14]; v1 += " ";// )
+					v1 += str[index + 10]; v1 += " ";// (
+					v1 += str[index + 12]; v1 += " ";// a
+					v1 += str[index + 13]; v1 += " ";// b
+					v1 += str[index + 11]; v1 += " ";// a
+					v1 += str[index + 14]; v1 += " ";// )
 #else /////////////////////////////////////////////////////////////////////////
-				v1 += str[index + 0]; v1 += " ";// ( 
-				v1 += str[index + 1]; v1 += " ";// a
-				v1 += str[index + 2]; v1 += " ";// b
-				v1 += str[index + 3]; v1 += " ";// a
-				v1 += str[index + 4]; v1 += " ";// )
+					v1 += str[index + 0]; v1 += " ";// ( 
+					v1 += str[index + 1]; v1 += " ";// a
+					v1 += str[index + 2]; v1 += " ";// b
+					v1 += str[index + 3]; v1 += " ";// a
+					v1 += str[index + 4]; v1 += " ";// )
 
-				v1 += str[index + 5]; v1 += " ";// (
-				v1 += str[index + 6]; v1 += " ";// a
-				v1 += str[index + 7]; v1 += " ";// b
-				v1 += str[index + 8]; v1 += " ";// a
-				v1 += str[index + 9]; v1 += " ";// )
+					v1 += str[index + 5]; v1 += " ";// (
+					v1 += str[index + 6]; v1 += " ";// a
+					v1 += str[index + 7]; v1 += " ";// b
+					v1 += str[index + 8]; v1 += " ";// a
+					v1 += str[index + 9]; v1 += " ";// )
 
-				v1 += str[index + 10]; v1 += " ";// (
-				v1 += str[index + 11]; v1 += " ";// a
-				v1 += str[index + 12]; v1 += " ";// b
-				v1 += str[index + 13]; v1 += " ";// a
-				v1 += str[index + 14]; v1 += " ";// )
+					v1 += str[index + 10]; v1 += " ";// (
+					v1 += str[index + 11]; v1 += " ";// a
+					v1 += str[index + 12]; v1 += " ";// b
+					v1 += str[index + 13]; v1 += " ";// a
+					v1 += str[index + 14]; v1 += " ";// )
 
 #endif
 
 
 
 
-				this->AddParameter("plane", v1);
+					this->AddParameter("plane", v1);
 
+				}
+
+				this->AddParameter("material", str[index + 15]);
+
+				switch (str[index + 15][0]) {
+				case '#': this->AddParameter("aggregate", "liquid1"); break;
+				case '~': this->AddParameter("aggregate", "liquid2"); break;
+				case '%': this->AddParameter("aggregate", "liquid3"); break;
+				case '-': this->AddParameter("aggregate", "glas"); break;
+				case '?': this->AddParameter("aggregate", "solid_no_splitter"); break;
+				case '*': this->AddParameter("aggregate", "gas"); break;
+				default: this->AddParameter("aggregate", "solid"); break;
+				}
+
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 16]; v1 += " ";// [
+					v1 += str[index + 17]; v1 += " ";// a
+					v1 += str[index + 18]; v1 += " ";// b
+					v1 += str[index + 19]; v1 += " ";// c
+					v1 += str[index + 20]; v1 += " ";// d
+					v1 += str[index + 21]; v1 += " ";// ]
+					v1 += str[index + 29]; v1 += " ";// scaleu
+
+					this->AddParameter("uaxis", v1);
+
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 22]; v1 += " ";// [
+					v1 += str[index + 23]; v1 += " ";// a
+					v1 += str[index + 24]; v1 += " ";// b
+					v1 += str[index + 25]; v1 += " ";// c
+					v1 += str[index + 26]; v1 += " ";// d
+					v1 += str[index + 27]; v1 += " ";// ]
+					v1 += str[index + 30]; v1 += " ";// scalev
+
+					this->AddParameter("vaxis", v1);
+				}
+
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 28]; //rotate
+
+					this->AddParameter("rotate", v1);
+				}
+
+
+
+				index += 30;
+
+
+
+				EndEntity();
 			}
-
-			this->AddParameter("material", str[index + 15]);
-
-			switch (str[index + 15][0]) {
-			case '#': this->AddParameter("aggregate", "liquid1"); break;
-			case '~': this->AddParameter("aggregate", "liquid2"); break;
-			case '%': this->AddParameter("aggregate", "liquid3"); break;
-			case '-': this->AddParameter("aggregate", "glas"); break;
-			case '?': this->AddParameter("aggregate", "solid_no_splitter"); break;
-			case '*': this->AddParameter("aggregate", "gas"); break;
-			default: this->AddParameter("aggregate", "solid"); break;
-			}
-
-
-			{
-				std::string v1 = "";
-				//[0.0 0.0 0.0 0.0] 0.0
-
-				v1 += str[index + 16]; v1 += " ";// [
-				v1 += str[index + 17]; v1 += " ";// a
-				v1 += str[index + 18]; v1 += " ";// b
-				v1 += str[index + 19]; v1 += " ";// c
-				v1 += str[index + 20]; v1 += " ";// d
-				v1 += str[index + 21]; v1 += " ";// ]
-				v1 += str[index + 29]; v1 += " ";// scaleu
-
-				this->AddParameter("uaxis", v1);
-
-			}
-
-			{
-				std::string v1 = "";
-				//[0.0 0.0 0.0 0.0] 0.0
-
-				v1 += str[index + 22]; v1 += " ";// [
-				v1 += str[index + 23]; v1 += " ";// a
-				v1 += str[index + 24]; v1 += " ";// b
-				v1 += str[index + 25]; v1 += " ";// c
-				v1 += str[index + 26]; v1 += " ";// d
-				v1 += str[index + 27]; v1 += " ";// ]
-				v1 += str[index + 30]; v1 += " ";// scalev
-
-				this->AddParameter("vaxis", v1);
-			}
-
-
-			{
-				std::string v1 = "";
-				//[0.0 0.0 0.0 0.0] 0.0
-
-				v1 += str[index + 28]; //rotate
-				
-				this->AddParameter("rotate", v1);
-			}
-
-		
-
-			index += 30;
-
-
-
-			EndEntity();
 		}
-
-
-
-
 
 		if (s.c_str()[0] == '\"' && s.c_str()[s.length() - 1] == '\"')
 		{
-			
+
 			if (++index >= str.size())
 			{
 				return (unsigned long)str.size() + 1;
@@ -208,11 +245,35 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string> &str, unsign
 
 			s = RemoveChars(s, "\"");
 			s2 = RemoveChars(s2, "\"");
-			
-			
+
+
 
 			if (s == "classname" && s2 == "worldspawn") SetActiveEntityName("world");
 			else if (s == "classname") SetActiveEntityName(s2);
+
+			// NEU: "origin" (Lichter, Spieler-Start, Item-/Monster-Spawns, ...)
+			// wird als "X Y Z" gespeichert, aber die Brush-Geometrie durchlaeuft
+			// oben (SWAP_AXIS) eine zyklische Achsenpermutation (X Y Z) -> (Y Z X).
+			// Ohne diese Korrektur landen alle Entity-Positionen in einem
+			// anderen Koordinatensystem als die Brushes selbst.
+#ifdef SWAP_AXIS
+			if (s == "origin")
+			{
+				std::istringstream iss(s2);
+				double ox = 0.0, oy = 0.0, oz = 0.0;
+
+				if (iss >> ox >> oy >> oz)
+				{
+					std::ostringstream oss;
+					oss << oy << " " << oz << " " << ox; // dieselbe Permutation wie bei "plane"
+					s2 = oss.str();
+				}
+				else
+				{
+					printf("[HalfLife] 'origin' konnte nicht geparst werden: '%s'\n", s2.c_str());
+				}
+			}
+#endif
 
 			AddParameter(s, s2);
 		}
@@ -223,6 +284,9 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string> &str, unsign
 
 	return (unsigned long)index;
 }
+
+
+
 
 
 int HalfLife::save(const std::string& filename, const unsigned long flags)

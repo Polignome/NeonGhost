@@ -530,6 +530,8 @@ bool Manager::Busy() {
 
 
 
+
+
 void Manager::LoadResourceFromFile(std::string resource_manager_name, std::string resource_name, std::string filename, unsigned long flags, unsigned long resource_flags)
 {
 

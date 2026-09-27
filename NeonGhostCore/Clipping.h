@@ -132,6 +132,7 @@ namespace ng {
 					out.normal() = a.normal() + (b.normal() - a.normal()) * t;
 					out.color() = a.color() + (b.color() - a.color()) * t;
 					out.selected() = a.selected(); // bool - kein Sinn zu interpolieren
+					out.fxtexture()= a.fxtexture() + (b.fxtexture() - a.fxtexture()) * t;
 					return out;
 				};
 

@@ -22,6 +22,8 @@
 #include "HalfLife.h"
 #include <Bspcollision.h>
 #include <Map.h>
+#include <LightmapBuilder.h>
+#include <LightMapAtlas.h>
 
 #pragma comment(lib,"SDL2.lib")
 #pragma comment(lib,"SDL2main.lib")
@@ -33,7 +35,6 @@
 
 NG_BIND_MANAGER
 
-
 #define NG_USE_STATIC_MESH_ONLY
 
 const size_t MAX_POLY_COUNTS = 100;   
@@ -41,9 +42,9 @@ const size_t MAX_POLY_COUNTS = 100;
 //https://lovable.dev/projects/ab425dac-45f9-4c5c-8222-af5664f071fb
 //https://claude.ai/chat/8116e964-c2d9-40e2-bcfa-ed126458b56d
 
-
 static ng::tools::FPSCounter m_fps_counter;
 
+static ng::renderer::gfx::Texture m_bsp_lightmap;
 
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 //static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
@@ -128,7 +129,6 @@ inline void Render() {
     static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
      
     
-
     // erwartet: ≈ (0,0,0,1)
 
     static bool first_time = true;
@@ -176,11 +176,14 @@ inline void Render() {
     m_render_pipeline_3d.ProjectionMatrix() = m_camera.ProjectionMatrix();
     m_render_pipeline_3d.SetCamera(m_camera);
 
+
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
 
-
+    
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR | ng::renderer::rasterizer::RASTER_TEXTURE;
+    if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
+    
     //  for (auto bp : m_map_brush_polys) m_render_pipeline_3d.RenderPolygon(bp.verts());
     //  m_render_pipeline_3d.RenderMesh(m_mesh_obj);
     //  RenderBsp(m_bsp);
@@ -192,11 +195,10 @@ inline void Render() {
         });
     */
     
-    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs);
+    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, m_bsp_lightmap);
     
     m_render_pipeline_3d.End();
     
-
    
 
     if (m_use_after_fx)mgr.Apply(totalTime);
@@ -562,7 +564,6 @@ int main(int argc, char** argv) {
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
 
-
         if (m_load_hlm) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
@@ -570,8 +571,6 @@ int main(int argc, char** argv) {
                 hl_map.load(filename);
                 ng::map::Data<NG_MATH_FLOAT> data;
                 data = hl_map;
-
-
 
 
                 ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();;
@@ -609,24 +608,25 @@ int main(int argc, char** argv) {
                     ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
 
 
+
                     for (size_t i = 1; i < p.verts().size() - 1; ++i)
                     {
                         ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 0);
                         poly.texture = texture;
                         extra_polys.push_back(poly);
 
-                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i+1], p.verts()[i], p.verts()[0], 0);
+                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i + 1], p.verts()[i], p.verts()[0], 0);
                         poly2.texture = texture;
                         extra_polys.push_back(poly2);
                     }
                 }
 
-                printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+                
                 auto aabb = ng::bsp::ComputeSceneBounds(polys);
                 auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (NG_MATH_FLOAT)100);
 
                 for (auto p : sky)polys.push_back(p);
-                
+
                 m_bsp.Build(polys);
                 m_bsp.InsertExtraPolygons(extra_polys);
 
@@ -640,11 +640,56 @@ int main(int argc, char** argv) {
                 auto visibleextra = m_bsp.CollectRemainingExtraPolygons(); // Schritt 9
                 //for (auto o : visibleextra) visible.push_back(o);
 
-                m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
+                // ------------------------------------------------------------
+                // NEU: Lightmap-Baking
+                //
+                // Muss HIER passieren - NACH allen BSP-Splits (m_bsp.Build,
+                // InsertExtraPolygons), aber VOR VisCells::Build. "visible" und
+                // "visibleextra" sind die finalen, nicht mehr weiter gesplitteten
+                // Polygonlisten; VisCells kopiert sie nur noch (kein weiteres
+                // Splitten), die hier gebackenen fxtexture()-UVs bleiben also
+                // bis zum Rendering erhalten.
+                // ------------------------------------------------------------
+                
 
+                auto lights = ng::map::ToLightSources<NG_MATH_FLOAT>(data.GetLights());
+                                                
+                printf("[Lightmap] %zu Lichtquellen gefunden\n", lights.size());
+
+                ng::lightmap::LightmapOptions lmOpt;
+                
+                lmOpt.startAtlasSize = std::max(lmOpt.startAtlasSize,
+                    ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
+
+                auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
+                if (atlas)
+                {
+                    ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, visible, lights, lmOpt);
+
+              //      atlas->Buffer().Clear(RGB(255, 255, 255));
+                    
+                    ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", atlas->Buffer());
+                   
+                    m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
+                    //m_render_pipeline_3d.SetWorldLightmap(lightmapTex);
+
+                    printf("[Lightmap] Atlas gebacken und gebunden.\n");
+                }
+                else
+                {
+                    printf("[Lightmap] Baking fehlgeschlagen - kein Atlas gesetzt.\n");
+                }
+                
+                
+                m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
                 m_cells.Build(visible, m_vo);
                 m_cells.InsertExtraPolygons(visibleextra);
+
+                const auto& cellPolys = m_cells.Polygons();
+                for (size_t i = 0; i < std::min<size_t>(3, cellPolys.size()); ++i)
+                    printf("[Lightmap] in m_cells.Polygons(): poly=%zu v0.fxtexture=(%.4f,%.4f)\n",
+                        i, (double)cellPolys[i].verts[0].fxtexture().x(), (double)cellPolys[i].verts[0].fxtexture().y());
 
                 ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
                 po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl

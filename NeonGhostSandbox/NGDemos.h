@@ -37,6 +37,7 @@ static bool m_use_lod = false;
 static bool m_use_after_fx = false;
 static bool m_use_tile_base_rendering = true;
 static bool m_use_collision = false;
+static bool m_use_lightmap = false;
 static size_t m_num_visible_leafs = 0;
 static size_t m_num_bsp_leafs = 0;
 
@@ -791,7 +792,7 @@ inline void ViewTextureRes(const std::string& res_name)
         if (level >= res->GetMipLevels()) level = 0;
         ImGui::Text("Size %i %i", res->Width(), res->Height());
 
-        ImGui::SetNextItemWidth(100);
+        //ImGui::SetNextItemWidth(100);
         ImGui::SliderInt("MipLevel", &level, 0, int(res->GetMipLevels() - 1));
         ImGui::Checkbox("Stretch", &stretch);
         auto resl = res->GetMipLevel(level);
@@ -873,6 +874,10 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
             ImGui::EndChild();
         }
         ImGui::SameLine();
+
+       
+        ImVec2 cpos2 = ImGui::GetCursorPos();
+        wsize.x -= cpos2.x;
 
         if (ImGui::BeginChild(0x0002f, size)) {
 
@@ -1447,6 +1452,7 @@ inline void AddRenderMenuSubMenue() {
         if (ImGui::MenuItem("LOD", "", m_use_lod)) m_use_lod = !m_use_lod;
         if (ImGui::MenuItem("After FX", "", m_use_after_fx)) m_use_after_fx = !m_use_after_fx;
         if (ImGui::MenuItem("Use Tile based Rendering", "", m_rasterizer_3d.TiledRenderingEnabled())) m_use_tile_base_rendering = !m_use_tile_base_rendering;
+        if (ImGui::MenuItem("Render Lightmaps", "", m_use_lightmap)) m_use_lightmap = !m_use_lightmap;
         ImGui::EndMenu();
     }
     m_render_pipeline_3d.SetCullingMode(mode);

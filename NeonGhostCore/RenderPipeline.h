@@ -21,6 +21,7 @@
 #include "BSP.h"
 #include "PVS.h"
 #include "VisCells.h"
+#include "Texture.h"
 
 namespace ng::renderer::rasterizer {
 
@@ -78,6 +79,7 @@ namespace ng::renderer::rasterizer {
         void End() {
             m_rasterizer.End();
             m_worldTexViewCache.clear();
+            m_worldLastDirectTexture = ng::renderer::gfx::Texture();
         }
 
         void PreSortObjs(bool enable)
@@ -247,6 +249,7 @@ namespace ng::renderer::rasterizer {
 
         template <class MaterialBinder>
         inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+            ng::renderer::gfx::Texture lightmapAtlas, // NEU: gilt nur fuer diesen Aufruf
             MaterialBinder&& bindMaterial)
         {
             UpdateCameraPos();
@@ -260,8 +263,6 @@ namespace ng::renderer::rasterizer {
             if (cellCount == 0 || polys.empty())
                 return;
 
-            // Das PVS muss auf DEMSELBEN Baum wie die Zellen gebaut sein
-            // (pvs.Build(cells.Tree())). Sonst sind die Leaf-IDs keine Zellindizes.
             const bool pvsMatches = pvs.IsBuilt() && pvs.LeafCount() == cellCount;
 
             if (!pvsMatches)
@@ -279,15 +280,8 @@ namespace ng::renderer::rasterizer {
                 m_worldWarned = false;
             }
 
-
-            struct PreRenderPolys {
-                int32_t cell;
-                std::vector< int32_t> polys;
-            };
-
             const int32_t cell = pvsMatches ? cells.FindCell(m_camera_pos) : -1;
 
-            // Wurden Zellen/PVS neu gebaut (auch bei gleicher Adresse), Cache verwerfen.
             const bool dataChanged =
                 m_worldCellsPtr != &cells ||
                 m_worldPvsPtr != &pvs ||
@@ -295,7 +289,6 @@ namespace ng::renderer::rasterizer {
                 m_worldPolyCount != polys.size() ||
                 m_worldPvsMatches != pvsMatches;
 
-            // Sichtbare Zellen nur bei Zell-/Datenwechsel neu holen
             if (dataChanged || m_worldCell != cell)
             {
                 if (pvsMatches && pvs.IsActiveLeaf(cell))
@@ -324,17 +317,12 @@ namespace ng::renderer::rasterizer {
                 BuildWorldCellBounds(cells);
             }
 
-            // Zeitstempel fuer die Duplikat-Vermeidung (Polygon in mehreren Zellen)
             if (++m_worldStampValue == 0)
             {
                 std::fill(m_worldPolyStamp.begin(), m_worldPolyStamp.end(), 0u);
                 m_worldStampValue = 1;
             }
 
-            // NEU: eigener, unabhaengiger Stempel-Puffer fuer Extra-Polygone.
-            // extrapolys ist ein ANDERES Array mit eigener Indexzaehlung - darf
-            // sich NICHT den Puffer/Stempel mit den normalen Polygonen teilen,
-            // sonst kollidieren Index i (normal) und Index i (extra) miteinander.
             if (m_worldExtraPolyStamp.size() != extrapolys.size())
                 m_worldExtraPolyStamp.assign(extrapolys.size(), 0u);
 
@@ -347,7 +335,7 @@ namespace ng::renderer::rasterizer {
             m_statistics.cells_in_pvs += (uint32_t)m_worldVisCells.size();
 
             if (m_culling_mode & CULL_FRUSTUM)
-                (void)Frustum();   // aktualisiert m_frustum falls noetig
+                (void)Frustum();
 
             // ---- Schritt 2: Frustum-Culling pro Zelle ----
             m_worldCellOrder.clear();
@@ -355,7 +343,6 @@ namespace ng::renderer::rasterizer {
             for (int32_t c : m_worldVisCells)
             {
                 if (c < 0 || (size_t)c >= cellCount) continue;
-                //if (cells.CellPolygons(c).empty()) continue;
                 if (cells.CellPolygons(c).empty() && cells.CellExtraPolygons(c).empty())
                     continue;
 
@@ -385,17 +372,32 @@ namespace ng::renderer::rasterizer {
             bool haveMaterial = false;
             int lastMaterial = 0;
 
-            // Sicherheitsnetz: zu Beginn IMMER erzwingen, dass beim ersten
-            // Polygon neu gebunden wird - unabhaengig davon, was ein vorheriger
-            // Frame oder anderer Code (z.B. Debug-Code in Render()) zuletzt in
-            // state.diffuseTex hinterlassen hat.
             m_worldHaveDirectTexture = false;
 
+            // ------------------------------------------------------------
+            // NEU: Lightmap-Bindung, nur fuer die Dauer DIESES RenderWorld-
+            // Aufrufs. m_worldLightmapView bleibt Member (stabile Adresse,
+            // ueberlebt End()), aber ihr Inhalt und der RASTER_LIGHTMAP-Flag
+            // werden am Ende der Funktion garantiert wieder entfernt, damit
+            // andere Pipeline-Aufrufe (RenderMesh etc.) davon nichts mitkriegen.
+            // ------------------------------------------------------------
+            
+             const bool haveLightmap = (static_cast<bool>(lightmapAtlas) && (m_rasterizer.State().flags & ng::renderer::rasterizer::RASTER_LIGHTMAP));
+            //const bool haveLightmap =false;
+            if (haveLightmap)
+            {
+                m_worldLightmapView.texture = lightmapAtlas;
+
+                ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
+                state.lightmapTex = &m_worldLightmapView;
+                state.flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
+                m_rasterizer.SetState(state);
+            }
+            
             auto bindPolygonTexture = [&](const auto& poly)
                 {
                     if (poly.texture)
                     {
-                        // Identitaet der Textur ueber den rohen Resource-Zeiger.
                         const void* key = static_cast<const void*>(poly.texture.get());
 
                         if (!m_worldHaveDirectTexture || m_worldLastDirectTextureKey != key)
@@ -404,12 +406,12 @@ namespace ng::renderer::rasterizer {
                             if (it == m_worldTexViewCache.end())
                             {
                                 ng::renderer::rasterizer::TextureView view;
-                                view.texture = poly.texture; // haelt die Resource zusaetzlich am Leben
+                                view.texture = poly.texture;
                                 it = m_worldTexViewCache.emplace(key, std::move(view)).first;
                             }
 
                             ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
-                            state.diffuseTex = &it->second;   // stabile Adresse, ueberlebt End()
+                            state.diffuseTex = &it->second;
                             state.flags |= ng::renderer::rasterizer::RASTER_TEXTURE;
                             m_rasterizer.SetState(state);
 
@@ -436,10 +438,7 @@ namespace ng::renderer::rasterizer {
                             m_worldHaveDirectTexture = false;
                         }
                     }
-            
-                
                 };
-            
 
             for (const auto& entry : m_worldCellOrder)
             {
@@ -475,7 +474,7 @@ namespace ng::renderer::rasterizer {
                         continue;
                     }
 
-                        if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                    if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
                     m_worldPolyStamp[pi] = m_worldStampValue;
 
                     const auto& poly = polys[pi];
@@ -491,7 +490,6 @@ namespace ng::renderer::rasterizer {
 
                     m_rasterizer.DrawPolygon(verts2d);
 
-                    // Opake Welt occludiert (wie bei RenderMesh)
                     if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                         !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
                     {
@@ -511,7 +509,6 @@ namespace ng::renderer::rasterizer {
                         pi, extrapolys.size());
                     continue;
                 }
-
 
                 const auto& poly = extrapolys[pi];
 
@@ -538,48 +535,37 @@ namespace ng::renderer::rasterizer {
                     m_rasterizer.PopState();
                 }
                 else  m_rasterizer.DrawPolygon(verts2d);
-                // Opake Welt occludiert (wie bei RenderMesh)
+
                 if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
                     !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
                 {
                     m_rasterizer.DrawOcclusionPolygon(verts2d);
                 }
-                
+
                 m_statistics.polys_rendered++;
             }
 
-            
-            // Sicherheitsnetz: nach RenderWorld darf state.diffuseTex NIE mehr auf
-            // m_worldTexView zeigen bleiben, wenn das letzte gezeichnete Polygon
-            // eine direkte Textur hatte - andere Codepfade (z.B. End(), andere
-            // Render-Funktionen) koennten den State sonst mit einer inzwischen
-            // veralteten Textur-Referenz weiterverwenden. m_worldTexView selbst
-            // bleibt gueltig (Member), aber ihr Inhalt (Texture-shared_ptr) wird
-            // beim naechsten RenderWorld-Aufruf ohnehin ueberschrieben.
+            // ------------------------------------------------------------
+            // NEU: Lightmap-State wieder entfernen - gilt NUR fuer diesen
+            // RenderWorld-Aufruf, andere Teile der Pipeline (RenderMesh, etc.)
+            // duerfen davon nichts mitbekommen.
+            // ------------------------------------------------------------
+            if (haveLightmap)
+            {
+                ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
+                state.flags &= ~ng::renderer::rasterizer::RASTER_LIGHTMAP;
+                state.lightmapTex = nullptr;
+                m_rasterizer.SetState(state);
+            }
         }
 
         // Ohne Material-Callback
-        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs)
+        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+            ng::renderer::gfx::Texture lightmapAtlas)
         {
-            RenderWorld(cells, pvs, [](int) {});
+            RenderWorld(cells, pvs, lightmapAtlas, [](int) {});
         }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-     
         // Muss aufgerufen werden, wenn VisCells/PVS neu gebaut wurden, ohne dass
         // sich ihre Adresse geaendert hat.
         inline void InvalidateWorldCache()
@@ -640,18 +626,7 @@ namespace ng::renderer::rasterizer {
             return m_frustum;
         }
 
-        /*
-        inline void SetCamera(const scene::Camera<T>& camera) {
-
-            ModelViewMatrix() = camera.ViewMatrix();
-            ProjectionMatrix() = camera.ProjectionMatrix();
-            m_update_frustum = false;
-            m_update_camera_pos = false;
-            m_camera_pos = camera.position();
-            m_frustum = scene::CameraFrustum<T>(camera);
-            m_camera = camera;
-        }
-        */
+     
 
         inline void SetCamera(const scene::Camera<T>& camera) {
 
@@ -837,7 +812,9 @@ namespace ng::renderer::rasterizer {
         mutable bool m_pre_zsort_objs = false;
         mutable bool m_occluder_pass = true;
 
+
         ng::renderer::rasterizer::TextureView m_worldTexView;
+        ng::renderer::rasterizer::TextureView m_worldLightmapView;
         ng::renderer::gfx::Texture m_worldLastDirectTexture;
 
         std::vector<uint32_t> m_worldExtraPolyStamp;
@@ -948,6 +925,13 @@ namespace ng::renderer::rasterizer {
                 vs.u() = v.texture().x();
                 vs.v() = v.texture().y();
 
+                // NEU: Lightmap-UV mit uebernehmen. Ohne das bleiben fxu()/fxv()
+                // uninitialisiert (ScreenVertex setzt sie im Konstruktor nicht),
+                // wodurch die Lightmap ueberall denselben (zufaelligen) Punkt des
+                // Atlas sampelt statt der tatsaechlich gebackenen Werte.
+                vs.fxu() = v.fxtexture().x();
+                vs.fxv() = v.fxtexture().y();
+
                 verts2d.push_back(vs);
                 code = (s.x() > s.w() ? 1 : 0) | (s.x() < -s.w() ? 2 : 0) |
                     (s.y() > s.w() ? 4 : 0) | (s.y() < -s.w() ? 8 : 0) |
@@ -963,9 +947,6 @@ namespace ng::renderer::rasterizer {
 
 
             return true;     // vollständig innerhalb
-
-            //    return codeOff !=0;
-
         }
 
         inline math::Matrix<3, 1, T> GetCameraPositionFromView(const math::Matrix<4, 4, T>& viewMatrix)

@@ -162,6 +162,8 @@
     <ClInclude Include="CRC.h" />
     <ClInclude Include="CSGTree.h" />
     <ClInclude Include="HalfLife.h" />
+    <ClInclude Include="LightMapAtlas.h" />
+    <ClInclude Include="LightmapBuilder.h" />
     <ClInclude Include="Map.h" />
     <ClInclude Include="miniz.h" />
     <ClInclude Include="miniz_common.h" />
@@ -172,6 +174,7 @@
     <ClInclude Include="Parser.h" />
     <ClInclude Include="PlayerController.h" />
     <ClInclude Include="PVS.h" />
+    <ClInclude Include="Rect.h" />
     <ClInclude Include="SkyBoxGen.h" />
     <ClInclude Include="tiny_obj_loader.h" />
     <ClInclude Include="VFSFileManager.h" />

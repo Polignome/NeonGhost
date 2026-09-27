@@ -164,6 +164,20 @@ namespace ng {
         TextureResourceManager::~TextureResourceManager() {}
 
 
+        uint64_t TextureResourceManager::LoadTextureFromPixelBuffer(std::string resname, ng::renderer::buffers::PixelBufferRGBA buffer, bool keep_source  , unsigned long attrib)
+        {
+            if (buffer.Width() * buffer.Height() <= 0 || buffer.GetRawBuffer() == nullptr) return Add(resname, nullptr, attrib);
+            ng::renderer::buffers::PixelBufferRGBA raw(buffer.Width(), buffer.Height());
+            memmove(raw.GetRawBuffer(), buffer.GetRawBuffer(), buffer.Width()* buffer.Height() * sizeof(uint32_t));
+            _Texture* img = new _Texture(raw);
+
+            return Add(resname, img, attrib);
+
+        }
+
+
+
+
         uint64_t TextureResourceManager::LoadTextureFromFile(std::string resname, std::string filename, bool keep_source, unsigned long attrib) {
             _Texture* img = new _Texture;
             bool err = img->Load(filename);
@@ -183,11 +197,11 @@ namespace ng {
         uint64_t TextureResourceManager::LoadRawTextureFromMemory(std::string resname, unsigned char* buffer, unsigned long width, unsigned long height, bool keep_source, unsigned long attrib)
         {
             
-            if (width* height<=0 ||buffer == nullptr) return Add(resname, nullptr, attrib);
+            if (width * height <= 0 || buffer == nullptr) return Add(resname, nullptr, attrib);
             ng::renderer::buffers::PixelBufferRGBA raw(width, height);
-            memmove(raw.GetRawBuffer(), buffer, width*height*sizeof(uint32_t));
+            memmove(raw.GetRawBuffer(), buffer, width * height * sizeof(uint32_t));
             _Texture* img = new _Texture(raw);
-            
+
             return Add(resname, img, attrib);
 
         }

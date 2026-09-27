@@ -66,6 +66,14 @@ namespace ng
             uint32_t flags = 0;
             int volumeId = -1;
 
+            // ---- Lightmap-Zuordnung, gefuellt von BuildLightmapAtlas() /
+            //      BakeExtraPolygonLightmaps() ----
+            int32_t lmPosX = -1, lmPosY = -1;
+            int32_t lmWidth = 0, lmHeight = 0;
+            math::Matrix<3, 1, T> lmOrigin;
+            math::Matrix<3, 1, T> lmEdgeU;
+            math::Matrix<3, 1, T> lmEdgeV;
+
             static BSPPolygon FromTriangle(
                 const Vertex& v0, const Vertex& v1, const Vertex& v2,
                 int materialId = -1, uint32_t objectId = 0)
@@ -75,7 +83,7 @@ namespace ng
                 poly.plane = Plane(v0.world(), v1.world(), v2.world());
                 poly.materialId = materialId;
                 poly.objectId = objectId;
-                
+
                 return poly;
             }
         };
@@ -95,12 +103,12 @@ namespace ng
             out.world() = a.world() + (b.world() - a.world()) * t;
             out.normal() = a.normal() + (b.normal() - a.normal()) * t;
             out.texture() = a.texture() + (b.texture() - a.texture()) * t;
+            out.fxtexture() = a.fxtexture() + (b.fxtexture() - a.fxtexture()) * t; // NEU: Lightmap-UV interpolieren
             out.color() = a.color() + (b.color() - a.color()) * t;
             out.alpha() = a.alpha() + (b.alpha() - a.alpha()) * t;
 
             return out;
         }
-
         // ------------------------------------------------------------
         // SplitPolygon
         // Teilt ein Polygon in FRONT und BACK.

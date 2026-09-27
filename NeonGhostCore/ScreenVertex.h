@@ -17,10 +17,12 @@ namespace ng::renderer::rasterizer {
 		T _w;
 		T _u;
 		T _v;
-		T _fxu;
-		T _fxv;
+		T _fxu = 0;
+		T _fxv = 0;
 		int _iy;
 		T _alpha;
+
+		
 
 	public:
 		ScreenVertex() = default;

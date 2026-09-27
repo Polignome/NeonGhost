@@ -109,6 +109,9 @@
     <Filter Include="Quelldateien\Map">
       <UniqueIdentifier>{61e809cf-2acb-4f8d-a557-4d421c774163}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Headerdateien\Light">
+      <UniqueIdentifier>{3520d0d2-eef5-41fb-9e3d-c8c743f7853a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Matrix.h">
@@ -374,6 +377,15 @@
     </ClInclude>
     <ClInclude Include="PlayerController.h">
       <Filter>Headerdateien\Controler</Filter>
+    </ClInclude>
+    <ClInclude Include="Rect.h">
+      <Filter>Headerdateien\Light</Filter>
+    </ClInclude>
+    <ClInclude Include="LightMapAtlas.h">
+      <Filter>Headerdateien\Light</Filter>
+    </ClInclude>
+    <ClInclude Include="LightmapBuilder.h">
+      <Filter>Headerdateien\Light</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

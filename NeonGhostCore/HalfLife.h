@@ -11,6 +11,12 @@ namespace ng {
 		{
 		public:
 			HalfLife() {}
+			struct RawLight
+			{
+				std::string origin; // "x y z"
+				std::string light;  // "r g b brightness" oder "r g b" oder leer
+			};
+			std::vector<RawLight> m_rawLights;
 
 			virtual ~HalfLife() {}
 			int load(const std::string& filename, const unsigned long flags = 0);

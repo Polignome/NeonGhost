@@ -10,21 +10,41 @@ namespace ng {
 			// Construction/Destruction
 
 			inline				Vertex() {}
-			inline				Vertex(const T& x, const T& y, const T& z) :_world(math::Matrix<3, 1, T>(x, y, z)), _selected(false) {}
-			inline				Vertex(const Vertex& v) : _texture(v.texture()), _world(v.world()), _color(v.color()), _selected(v.selected()) {}
-			inline				Vertex(const math::Matrix<3, 1, T>& p) : _world(p), _selected(false) {}
+			
+			
+
+			inline Vertex(const T& x, const T& y, const T& z) : _world(math::Matrix<3, 1, T>(x, y, z)), _selected(false) {}
+
+			// FIX: fxtexture() und normal() fehlten hier komplett - jede Kopie
+			// eines Vertex (und davon gibt es sehr viele: BSPPolygon-Kopien,
+			// VisCells::Build, std::vector<Vertex>-Resizes, ...) hat bisher
+			// die Lightmap-UV und die Normale stillschweigend verworfen.
+			inline Vertex(const Vertex& v)
+				: _texture(v.texture())
+				, _fxtexture(v.fxtexture())
+				, _world(v.world())
+				, _normal(v.normal())
+				, _color(v.color())
+				, _selected(v.selected())
+			{
+			}
+
+			inline Vertex(const math::Matrix<3, 1, T>& p) : _world(p), _selected(false) {}
 
 			// Operators
 
-			inline		Vertex& operator =(const Vertex& v)
+			inline Vertex& operator =(const Vertex& v)
 			{
 				texture() = v.texture();
+				fxtexture() = v.fxtexture();   // FIX: fehlte ebenfalls
 				world() = v.world();
 				color() = v.color();
 				normal() = v.normal();
 				selected() = v.selected();
 				return *this;
 			}
+
+		
 
 			// Accessors
 

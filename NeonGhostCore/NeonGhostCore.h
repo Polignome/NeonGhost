@@ -56,7 +56,7 @@
 #include "SkyBoxGen.h"
 
 
-
+#include "LightmapBuilder.h"
 
 #include "WaveformObj.h"
 #ifndef NG_BIND_MANAGER
