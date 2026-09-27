@@ -37,7 +37,7 @@ static bool m_use_lod = false;
 static bool m_use_after_fx = false;
 static bool m_use_tile_base_rendering = true;
 static bool m_use_collision = false;
-static bool m_use_lightmap = false;
+static bool m_use_lightmap = true;
 static size_t m_num_visible_leafs = 0;
 static size_t m_num_bsp_leafs = 0;
 
@@ -879,7 +879,7 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
         ImVec2 cpos2 = ImGui::GetCursorPos();
         wsize.x -= cpos2.x;
 
-        if (ImGui::BeginChild(0x0002f, size)) {
+        if (ImGui::BeginChild(0x0002f, wsize)) {
 
            if (mng_name == "IMAGE_RESOURCE") ViewImageRes(res_name);
            if (mng_name == "TEXTURE_RESOURCE") ViewTextureRes(res_name);

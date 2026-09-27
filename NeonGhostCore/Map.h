@@ -80,6 +80,12 @@ namespace ng {
 
 			for (const auto& l : mapLights)
 			{
+				printf("--------------------------------------\n");
+				printf(" Brightness %f \n", l.brightness);
+				printf(" Color      %f  %f  %f \n", l.color.r(), l.color.g(), l.color.b());
+				printf(" Origin     %f  %f  %f \n", l.origin.x(), l.origin.y(), l.origin.z());
+				printf(" Radius     %f\n", l.radius);
+
 				ng::lightmap::LightSource<T> src;
 				src.pos = l.origin;
 				src.color = l.color;

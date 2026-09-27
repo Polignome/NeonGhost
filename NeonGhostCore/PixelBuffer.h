@@ -82,6 +82,23 @@ namespace ng {
 
 				}
 
+				// NEU: const - reines Lesen, veraendert den Objektzustand nicht.
+	// shared_ptr::get() ist auch auf einem const shared_ptr aufrufbar,
+	// daher funktioniert der Zugriff unveraendert.
+				inline uint32_t GetPixel(const unsigned int& x, const  unsigned& y) const {
+					return m_buffer.get()[(x + y * Width()) % Size()];
+
+				}
+
+				// NEU: const, aus demselben Grund.
+				inline uint32_t GetPixel(const uint32_t& offset) const {
+					return m_buffer.get()[offset % Size()];
+
+				}
+
+
+
+
 				inline void CopyFrom( PixelBufferRGBA src) {
 					if (src.MemSize() == MemSize()) {
 						std::memcpy(GetRawBuffer(),src.GetRawBuffer(),MemSize());

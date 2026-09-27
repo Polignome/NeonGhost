@@ -24,13 +24,13 @@ namespace ng {
                 // Erzeugt 24 Vertices (4 pro Seite, nicht geteilt), damit
                 // jede Seite ihre eigene flache Normale/UVs bekommt.
                 // ============================================================
-                static Mesh<T> CreateCube(T size = static_cast<T>(1))
+                static Mesh<T> CreateCube(T size = static_cast<T>(1), ng::math::Matrix<3, 1, T> color = ng::math::Matrix<3, 1, T>((T)1, (T)1, (T)1))
                 {
-                    return CreateBox(size, size, size);
+                    return CreateBox(size, size, size,color);
                 }
                 
                 
-                static Mesh<T> CreateBox(T width, T height, T depth)
+                static Mesh<T> CreateBox(T width, T height, T depth, ng::math::Matrix<3, 1, T> color = ng::math::Matrix<3, 1, T>((T)1, (T)1, (T)1))
                 {
                     Mesh<T> mesh;
 
@@ -89,9 +89,9 @@ namespace ng {
                         v.color() =
                             math::Matrix<4, 1, T>::NormalToColor(
                                 v.normal(),
-                                -1,
-                                -1,
-                                -1
+                                color.x(),
+                                color.x(),
+                                color.x()
                             );
 
                         // Bei gemeinsamen Vertices gibt es hier natürlich

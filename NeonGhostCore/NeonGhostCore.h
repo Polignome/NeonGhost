@@ -55,6 +55,7 @@
 
 #include "SkyBoxGen.h"
 
+#include "MeshGenerator.h"
 
 #include "LightmapBuilder.h"
 

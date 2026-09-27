@@ -339,8 +339,10 @@ namespace ng::renderer::rasterizer
         template<class T>
         inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
         {
+            
+            
             uint32_t base = ColorTexture(f, st);
-
+            if (!st.lightmapTex) return base;
             // WICHTIG: Lightmap immer auf Mip-Level 0 sampeln, NIE automatisch
             // hochstufen. Der Atlas packt viele voneinander unabhaengige
             // Polygon-Patches nebeneinander; eine Mip-Kette wuerde beim
@@ -348,6 +350,7 @@ namespace ng::renderer::rasterizer
             // vermischen ("Bleeding"), sobald ein Patch an der Atlas-Nahtstelle
             // liegt. Level 0 ist bei Lightmaps unkritisch, da sie ohnehin schon
             // niedrig aufgeloest und weichgezeichnet sind.
+            
             uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
 
             uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;

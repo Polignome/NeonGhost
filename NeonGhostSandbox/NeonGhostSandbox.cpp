@@ -197,6 +197,10 @@ inline void Render() {
     
     m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, m_bsp_lightmap);
     
+    for (auto m : m_mesh_obj)
+        m_render_pipeline_3d.RenderMesh(m);
+
+
     m_render_pipeline_3d.End();
     
    
@@ -373,6 +377,8 @@ int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
     static bool m_load_obj = false;
     static bool m_load_hlm = false;
+    static bool m_build_lightmaps = false;
+    static bool m_build_radiosity = false;
     if (InitImGui()) return 1;
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGuiStyle& style = ImGui::GetStyle();
@@ -480,7 +486,6 @@ int main(int argc, char** argv) {
         }
 
 
-
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
@@ -489,6 +494,12 @@ int main(int argc, char** argv) {
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Compiler")) {
+                if (ImGui::MenuItem("Lighmaps", 0, m_build_lightmaps)) m_build_lightmaps = !m_build_lightmaps;
+                if (!m_build_lightmaps)m_build_radiosity = false;
+                if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity, m_build_lightmaps)) m_build_radiosity = !m_build_radiosity;
+                ImGui::EndMenu();
+            }
             if (ImGui::BeginMenu("Tools")) {
                 bool temp = m_tools_font_window;
                 if (ImGui::MenuItem("View Font")) m_tools_font_window = true;
@@ -534,7 +545,6 @@ int main(int argc, char** argv) {
 
 
 
-
             if (m_view_render_fullscreen) AddRenderMenuSubMenue();
 
 
@@ -572,7 +582,7 @@ int main(int argc, char** argv) {
                 ng::map::Data<NG_MATH_FLOAT> data;
                 data = hl_map;
 
-
+                m_mesh_obj.clear();
                 ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();;
 
 
@@ -601,7 +611,6 @@ int main(int argc, char** argv) {
                 }
 
 
-
                 auto liquit_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush, ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID);
                 for (auto p : liquit_faces) {
                     auto name = data.m_id_text[p.textureIndex()];
@@ -625,6 +634,7 @@ int main(int argc, char** argv) {
                 auto aabb = ng::bsp::ComputeSceneBounds(polys);
                 auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (NG_MATH_FLOAT)100);
 
+
                 for (auto p : sky)polys.push_back(p);
 
                 m_bsp.Build(polys);
@@ -640,6 +650,7 @@ int main(int argc, char** argv) {
                 auto visibleextra = m_bsp.CollectRemainingExtraPolygons(); // Schritt 9
                 //for (auto o : visibleextra) visible.push_back(o);
 
+
                 // ------------------------------------------------------------
                 // NEU: Lightmap-Baking
                 //
@@ -650,36 +661,62 @@ int main(int argc, char** argv) {
                 // Splitten), die hier gebackenen fxtexture()-UVs bleiben also
                 // bis zum Rendering erhalten.
                 // ------------------------------------------------------------
-                
+                                
 
-                auto lights = ng::map::ToLightSources<NG_MATH_FLOAT>(data.GetLights());
-                                                
-                printf("[Lightmap] %zu Lichtquellen gefunden\n", lights.size());
+                        if (m_build_lightmaps) {
+                            auto lights = ng::map::ToLightSources<NG_MATH_FLOAT>(data.GetLights());
+                            for (auto l : data.GetLights()) {
+                                auto box = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateBox(10, 10, 10);
+                                box.SetPosition(l.origin);
+                                box.ComputeSmoothNormals();
+                                box.GenerateUVsBoxMapped();
+                                box.SetVertexColor(l.color);
+                                m_mesh_obj.push_back(box);
+                                    
+                                
+                            }
+                            printf("[Lightmap] %zu Lichtquellen gefunden\n", lights.size());
 
-                ng::lightmap::LightmapOptions lmOpt;
-                
-                lmOpt.startAtlasSize = std::max(lmOpt.startAtlasSize,
-                    ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
+                            ng::lightmap::LightmapOptions lmOpt;
+                            
+                            lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
+                            lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
+                            lmOpt.startAtlasSize = std::max(1024, ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
+                            lmOpt.maxAtlasSize = 8192;
+                            lmOpt.kAmbientFloor = 20;
+                           
 
-                auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
-                if (atlas)
-                {
-                    ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, visible, lights, lmOpt);
+                            
 
-              //      atlas->Buffer().Clear(RGB(255, 255, 255));
-                    
-                    ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", atlas->Buffer());
-                   
-                    m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
-                    //m_render_pipeline_3d.SetWorldLightmap(lightmapTex);
+                            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
+                            if (atlas)
+                            {
+                                ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, visible, lights, lmOpt);
 
-                    printf("[Lightmap] Atlas gebacken und gebunden.\n");
-                }
-                else
-                {
-                    printf("[Lightmap] Baking fehlgeschlagen - kein Atlas gesetzt.\n");
-                }
-                
+                                ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__Pre_lightmap_atlas__", atlas->Buffer());
+
+
+
+                                // NEU: Radiosity (indirektes Licht) auf Basis der bereits direkt
+                                // beleuchteten opaken Polygone.
+                                ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
+                                radOpt.bounces = 300;
+                                radOpt.samplesPerPatch = 200;
+                                radOpt.maxRayDistance = 4096.0;
+                               
+                                if (m_build_radiosity)  ng::lightmap::BakeRadiosity(*atlas, visible, radOpt);
+
+                                
+                                ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", atlas->Buffer());
+                                m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
+
+                                printf("[Lightmap] Atlas gebacken und gebunden.\n");
+                            }
+                            else
+                            {
+                                printf("[Lightmap] Baking fehlgeschlagen - kein Atlas gesetzt.\n");
+                            }
+                        }
                 
                 m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 

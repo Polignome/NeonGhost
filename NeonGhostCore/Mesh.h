@@ -27,6 +27,20 @@ namespace ng
                 using Vec3 = typename Object3D<T>::Vec3;
                 using Vec2 = ng::math::Matrix<2, 1, T>;
                 using Vertex = ng::geometry::Vertex<T>;
+
+                inline void SetVertexColor(const ng::math::Matrix<4, 1, T>& color) {
+                    for (auto& v : m_vertices) v.color() = color;
+                }
+                inline void SetVertexColor(const ng::math::Matrix<3, 1, T>& color) {
+                    SetVertexColor(ng::math::Matrix<4, 1, T>(color.x(), color.y(), color.z(), (T)1));
+                }
+
+                inline void SetVertexColor(const T& r, const T& g, const T& b, const T& a=1) {
+                    SetVertexColor(ng::math::Matrix<4, 1, T>(r, g, b, a));
+                }
+
+
+
                 // ============================================================
                 // Raycast Ergebnis
                 // ============================================================

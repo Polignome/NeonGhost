@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <limits>
 #include <cstdio>
+#include <random>
+
 
 namespace ng::lightmap
 {
@@ -550,4 +552,378 @@ namespace ng::lightmap
 
         return allPacked;
     }
+
+    // ------------------------------------------------------------
+    // Radiosity (indirektes Licht / Bounces)
+    //
+    // Patch-basiert, EIN Patch pro opakem Polygon (keine Subdivision -
+    // grobe, aber schnelle erste Ausbaustufe. Grosse Flaechen bekommen
+    // dadurch ein gleichmaessiges indirektes Licht ohne Gradient; feinere
+    // Ergebnisse braeuchten eine Patch-Unterteilung grosser Polygone).
+    //
+    // Ablauf: BuildLightmapAtlas() (direktes Licht) MUSS vorher gelaufen
+    // sein - die Patches lesen ihre "Emission" (bounce 0) direkt aus dem
+    // bereits gebackenen Atlas-Bereich des jeweiligen Polygons aus.
+    // ------------------------------------------------------------
+
+    template<class T>
+    struct RadiosityOptions
+    {
+        int    bounces = 3;
+        int    samplesPerPatch = 48;   // Hemisphere-Samples pro Patch und Bounce
+        double maxRayDistance = 4096.0;
+        double epsilon = 1e-3;
+        unsigned int randomSeed = 12345u;
+    };
+
+    template<class T>
+    struct RadiosityPatch
+    {
+        const ng::bsp::BSPPolygon<T>* poly = nullptr;
+        Vec3<T> center;
+        Vec3<T> normal;
+        Vec3<T> albedo;       // 0..1 pro Kanal
+        Vec3<T> residual;     // was dieser Patch im NAECHSTEN Bounce "aussendet"
+        Vec3<T> accumulated;  // Summe allen empfangenen indirekten Lichts (0..255-Skala)
+        // Bounding-Sphaere fuer schnellen Ray-Ausschluss
+        Vec3<T> bsCenter;
+        T bsRadius = T(0);
+    };
+
+    // ------------------------------------------------------------
+    // ComputePolygonAlbedo
+    //
+    // Grobe Durchschnittsfarbe der Diffuse-Textur (0..1). Ohne Textur
+    // (poly.texture leer) wird ein neutrales Grau angenommen. Aus
+    // Performancegruenden wird nur ein Sub-Sample der Pixel gelesen
+    // (jedes 4. Pixel in jeder Achse) statt der kompletten Textur.
+    // ------------------------------------------------------------
+    template<class T>
+    Vec3<T> ComputePolygonAlbedo(const ng::bsp::BSPPolygon<T>& poly)
+    {
+        if (!poly.texture)
+            return Vec3<T>(T(0.5), T(0.5), T(0.5));
+
+        const int w = poly.texture->Width();
+        const int h = poly.texture->Height();
+        if (w <= 0 || h <= 0)
+            return Vec3<T>(T(0.5), T(0.5), T(0.5));
+
+        const int stride = 4;
+        uint64_t sr = 0, sg = 0, sb = 0, count = 0;
+
+        for (int y = 0; y < h; y += stride)
+        {
+            for (int x = 0; x < w; x += stride)
+            {
+                const uint32_t px = poly.texture->GetPixel(x, y);
+                sr += RGBToRed(px);
+                sg += RGBToGreen(px);
+                sb += RGBToBlue(px);
+                ++count;
+            }
+        }
+
+        if (count == 0)
+            return Vec3<T>(T(0.5), T(0.5), T(0.5));
+
+        return Vec3<T>(
+            T(double(sr) / double(count)) / T(255),
+            T(double(sg) / double(count)) / T(255),
+            T(double(sb) / double(count)) / T(255));
+    }
+
+    // ------------------------------------------------------------
+    // BuildRadiosityPatches
+    //
+    // EIN Patch pro opakem Polygon. Liest die "Emission" (bereits
+    // gebackenes direktes Licht) als Durchschnitt aus dem Atlas-Bereich
+    // dieses Polygons - BuildLightmapAtlas() muss also vorher gelaufen
+    // sein und dieselben lmPosX/Y/Width/Height gesetzt haben.
+    // ------------------------------------------------------------
+    template<class T>
+    std::vector<RadiosityPatch<T>> BuildRadiosityPatches(
+         LightMapAtlas& atlas,
+        const std::vector<ng::bsp::BSPPolygon<T>>& polygons)
+    {
+        std::vector<RadiosityPatch<T>> patches;
+        patches.reserve(polygons.size());
+
+        for (const auto& poly : polygons)
+        {
+            if (poly.verts.size() < 3 || poly.lmWidth <= 0 || poly.lmHeight <= 0)
+                continue;
+
+            RadiosityPatch<T> patch;
+            patch.poly = &poly;
+            patch.normal = poly.plane.normal();
+            patch.albedo = ComputePolygonAlbedo(poly);
+
+            // Zentrum + Bounding-Sphaere aus den Vertices
+            Vec3<T> c(0, 0, 0);
+            T maxR = T(0);
+            for (const auto& v : poly.verts) c = c + v.world();
+            c = c * (T(1) / T(poly.verts.size()));
+            for (const auto& v : poly.verts)
+                maxR = std::max(maxR, (v.world() - c).length());
+
+            patch.center = c + patch.normal * T(0.5); // leicht ueber die Flaeche versetzt (Self-Intersection vermeiden)
+            patch.bsCenter = c;
+            patch.bsRadius = maxR;
+
+            // Durchschnitt des bereits gebackenen direkten Lichts aus dem Atlas
+            uint64_t sr = 0, sg = 0, sb = 0;
+            const int total = poly.lmWidth * poly.lmHeight;
+            for (int y = 0; y < poly.lmHeight; ++y)
+            {
+                for (int x = 0; x < poly.lmWidth; ++x)
+                {
+                    const uint32_t px = atlas.Buffer().GetPixel(poly.lmPosX + x, poly.lmPosY + y);
+                    sr += RGBToRed(px);
+                    sg += RGBToGreen(px);
+                    sb += RGBToBlue(px);
+                }
+            }
+
+            Vec3<T> directLight(0, 0, 0);
+            if (total > 0)
+            {
+                directLight = Vec3<T>(
+                    T(double(sr) / double(total)),
+                    T(double(sg) / double(total)),
+                    T(double(sb) / double(total)));
+            }
+
+            // Bounce 0: das Residual, das dieser Patch aussendet, ist das
+            // direkte Licht multipliziert mit der Albedo (nur der reflektierte
+            // Anteil traegt zur naechsten Bounce-Stufe bei).
+            patch.residual = Vec3<T>(
+                directLight(0) * patch.albedo(0),
+                directLight(1) * patch.albedo(1),
+                directLight(2) * patch.albedo(2));
+
+            patch.accumulated = Vec3<T>(0, 0, 0);
+
+            patches.push_back(patch);
+        }
+
+        return patches;
+    }
+
+    // ------------------------------------------------------------
+    // CosineWeightedHemisphereSample
+    //
+    // Erzeugt eine kosinus-gewichtete Zufallsrichtung um "normal".
+    // Kosinusgewichtung ist wichtig: dadurch entfaellt der zusaetzliche
+    // N*L-Term bei der Auswertung - jeder Treffer zaehlt gleich, das
+    // Sample-Muster selbst bildet die Kosinus-Verteilung ab.
+    // ------------------------------------------------------------
+    template<class T>
+    Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, std::mt19937& rng)
+    {
+        std::uniform_real_distribution<double> dist(0.0, 1.0);
+        const double u1 = dist(rng);
+        const double u2 = dist(rng);
+
+        const double r = std::sqrt(u1);
+        const double theta = 2.0 * 3.14159265358979323846 * u2;
+
+        const double lx = r * std::cos(theta);
+        const double ly = r * std::sin(theta);
+        const double lz = std::sqrt(std::max(0.0, 1.0 - u1));
+
+        // Lokale Basis um "normal"
+        Vec3<T> axis(0, 0, 0);
+        if (std::abs(normal(0)) <= std::abs(normal(1)) && std::abs(normal(0)) <= std::abs(normal(2))) axis(0) = T(1);
+        else if (std::abs(normal(1)) <= std::abs(normal(2))) axis(1) = T(1);
+        else axis(2) = T(1);
+
+        Vec3<T> tangent = axis % normal; tangent.normalize();
+        Vec3<T> bitangent = normal % tangent; bitangent.normalize();
+
+        return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
+    }
+
+    // ------------------------------------------------------------
+    // FindNearestPatchHit
+    //
+    // Wie RayIntersectsPolygon, aber sucht ueber ALLE Patches den
+    // naechstgelegenen Treffer und liefert dessen Index. Nutzt die
+    // Bounding-Sphaere jedes Patches zum schnellen Vorab-Ausschluss.
+    // ------------------------------------------------------------
+    template<class T>
+    int FindNearestPatchHit(const Vec3<T>& origin, const Vec3<T>& dir,
+        const std::vector<RadiosityPatch<T>>& patches, int excludeIdx, T maxDist, T eps)
+    {
+        int bestIdx = -1;
+        T bestT = maxDist;
+
+        for (size_t i = 0; i < patches.size(); ++i)
+        {
+            if ((int)i == excludeIdx) continue;
+
+            const auto& p = patches[i];
+
+            // Grober Kugel-Ausschluss: liegt die Kugel ueberhaupt in
+            // Strahlrichtung nah genug dran?
+            const Vec3<T> toSphere = p.bsCenter - origin;
+            const T proj = toSphere(0) * dir(0) + toSphere(1) * dir(1) + toSphere(2) * dir(2);
+            if (proj < T(0) || proj > bestT + p.bsRadius) continue;
+            const Vec3<T> closest = origin + dir * proj;
+            if ((closest - p.bsCenter).length() > p.bsRadius + eps) continue;
+
+            T t;
+            if (RayIntersectsPolygon(origin, dir, *p.poly, t, eps) && t < bestT)
+            {
+                bestT = t;
+                bestIdx = (int)i;
+            }
+        }
+
+        return bestIdx;
+    }
+
+    // ------------------------------------------------------------
+    // RunRadiosityBounces
+    //
+    // Jacobi-Iteration: pro Bounce werden alle Patches parallel (in
+    // Sicht der Daten, nicht zwingend Multithreading) aktualisiert, damit
+    // keine Reihenfolge-Abhaengigkeit entsteht.
+    // ------------------------------------------------------------
+    template<class T>
+    void RunRadiosityBounces(std::vector<RadiosityPatch<T>>& patches,
+        const RadiosityOptions<T>& opt)
+    {
+        std::mt19937 rng(opt.randomSeed);
+
+        std::vector<Vec3<T>> incoming(patches.size());
+
+        for (int bounce = 0; bounce < opt.bounces; ++bounce)
+        {
+            printf("[Radiosity] Bounce %d / %d ...\r", bounce + 1, opt.bounces);
+
+            for (size_t i = 0; i < patches.size(); ++i)
+            {
+                const auto& receiver = patches[i];
+                Vec3<T> sum(0, 0, 0);
+                int hits = 0;
+
+                for (int s = 0; s < opt.samplesPerPatch; ++s)
+                {
+                    const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, rng);
+
+                    const int hitIdx = FindNearestPatchHit(receiver.center, dir, patches,
+                        (int)i, (T)opt.maxRayDistance, (T)opt.epsilon);
+
+                    if (hitIdx < 0) continue;
+
+                    sum = sum + patches[hitIdx].residual;
+                    ++hits;
+                }
+
+                incoming[i] = (hits > 0) ? (sum * (T(1) / T(opt.samplesPerPatch))) : Vec3<T>(0, 0, 0);
+            }
+
+            // Erst NACH der kompletten Bounce-Runde uebernehmen (Jacobi-Style):
+            for (size_t i = 0; i < patches.size(); ++i)
+            {
+                patches[i].accumulated = patches[i].accumulated + incoming[i];
+
+                patches[i].residual = Vec3<T>(
+                    incoming[i](0) * patches[i].albedo(0),
+                    incoming[i](1) * patches[i].albedo(1),
+                    incoming[i](2) * patches[i].albedo(2));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------
+    // ApplyRadiosityToAtlas
+    //
+    // Schreibt patch.accumulated additiv (gleichmaessig, ohne Gradient)
+    // ueber alle Lightmap-Texel des zugehoerigen Polygons in den Atlas.
+    // Muss NACH RunRadiosityBounces() aufgerufen werden.
+    // ------------------------------------------------------------
+    template<class T>
+    void ApplyRadiosityToAtlas(LightMapAtlas& atlas, const std::vector<RadiosityPatch<T>>& patches)
+    {
+        for (const auto& patch : patches)
+        {
+            const auto& poly = *patch.poly;
+            if (poly.lmWidth <= 0 || poly.lmHeight <= 0) continue;
+
+            const uint32_t addR = (uint32_t)std::clamp((double)patch.accumulated(0), 0.0, 255.0);
+            const uint32_t addG = (uint32_t)std::clamp((double)patch.accumulated(1), 0.0, 255.0);
+            const uint32_t addB = (uint32_t)std::clamp((double)patch.accumulated(2), 0.0, 255.0);
+
+            for (int y = 0; y < poly.lmHeight; ++y)
+            {
+                for (int x = 0; x < poly.lmWidth; ++x)
+                {
+                    const int xx = poly.lmPosX + x;
+                    const int yy = poly.lmPosY + y;
+
+                    const uint32_t existing = atlas.Buffer().GetPixel(xx, yy);
+                    const uint32_t er = RGBToRed(existing), eg = RGBToGreen(existing), eb = RGBToBlue(existing);
+
+                    const uint32_t r = std::min(255u, er + addR);
+                    const uint32_t g = std::min(255u, eg + addG);
+                    const uint32_t b = std::min(255u, eb + addB);
+
+                    atlas.Buffer().PutPixel(xx, yy, RGB(r, g, b));
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------
+    // BakeRadiosity
+    //
+    // Komplettablauf: Patches bauen, Bounces rechnen, ins Atlas schreiben.
+    // "occluderPolys" = dieselbe opake Polygonliste, die auch fuer
+    // BuildLightmapAtlas() als "polygons" diente (Wasser/Glas bewusst
+    // aussen vor - siehe Begruendung zu Occludern bei ProcessPoly).
+    // ------------------------------------------------------------
+    template<class T>
+    void BakeRadiosity(LightMapAtlas& atlas,
+        const std::vector<ng::bsp::BSPPolygon<T>>& occluderPolys,
+        const RadiosityOptions<T>& opt = RadiosityOptions<T>())
+    {
+        auto patches = BuildRadiosityPatches(atlas, occluderPolys);
+
+        printf("[Radiosity] %zu Patches, %d Bounces, %d Samples/Patch\n",
+            patches.size(), opt.bounces, opt.samplesPerPatch);
+
+        if (patches.empty())
+        {
+            printf("[Radiosity] keine Patches - uebersprungen.\n");
+            return;
+        }
+
+        RunRadiosityBounces(patches, opt);
+        printf("\n");
+
+
+        // TEMP-DEBUG
+        double maxAcc = 0.0, sumAcc = 0.0;
+        size_t nonZero = 0;
+        for (const auto& p : patches)
+        {
+            const double m = std::max({ (double)p.accumulated(0), (double)p.accumulated(1), (double)p.accumulated(2) });
+            maxAcc = std::max(maxAcc, m);
+            sumAcc += m;
+            if (m > 0.01) ++nonZero;
+        }
+        printf("[Radiosity] accumulated: max=%.3f avg=%.3f nonZero=%zu/%zu\n",
+            maxAcc, patches.empty() ? 0.0 : sumAcc / patches.size(), nonZero, patches.size());
+
+
+
+
+
+        ApplyRadiosityToAtlas(atlas, patches);
+
+        printf("[Radiosity] fertig.\n");
+    }
+
 }
