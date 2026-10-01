@@ -3,7 +3,7 @@
 #include "Parser.h"
 #include "WorldSpawn.h"
 #include "Wad3File.h"
-#include "LightmapBuilder.h"
+#include "Lightmap.h"
 #define DDG_MAP_ID "DarkGhostMap"
 
 
@@ -80,11 +80,7 @@ namespace ng {
 
 			for (const auto& l : mapLights)
 			{
-				printf("--------------------------------------\n");
-				printf(" Brightness %f \n", l.brightness);
-				printf(" Color      %f  %f  %f \n", l.color.r(), l.color.g(), l.color.b());
-				printf(" Origin     %f  %f  %f \n", l.origin.x(), l.origin.y(), l.origin.z());
-				printf(" Radius     %f\n", l.radius);
+				
 
 				ng::lightmap::LightSource<T> src;
 				src.pos = l.origin;
@@ -237,7 +233,7 @@ namespace ng {
 				// radius-basierten Falloff (siehe LightFalloff) reicht als
 				// Startwert eine Wurzel-Skalierung - spaeter pro Szene
 				// kalibrieren.
-				light.radius = light.brightness;///(T)std::sqrt(std::max((T)1, light.brightness)) * (T)8;
+				light.radius =(T)std::sqrt(std::max((T)1, light.brightness)) * (T)8;
 
 				m_lights.push_back(light);
 
@@ -288,8 +284,18 @@ namespace ng {
 
 					}
 					if (p.name == "rotate") {
-						GetEntity<T>(p, ray.vAxis(), ray.rotate());
+						
+						GetEntity(p, ray.rotate());
 
+					}
+
+					if (p.name == "uscale") {
+						GetEntity(p,  ray.uScale());
+
+					}
+
+					if (p.name == "vscale") {
+						GetEntity(p, ray.vScale());
 					}
 
 					if (p.name == "material") {

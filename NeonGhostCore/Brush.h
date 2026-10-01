@@ -487,7 +487,8 @@ namespace ng {
 				{
 					int w = 64, h = 64;
 					if (cfg.texSize) cfg.texSize(m_faces[i].texture(), w, h);
-					ApplyFaceUV(m_prims[i], m_faces[i], w, h, cfg.flipV, cfg.normalizeOrigin);
+//					ApplyFaceUV(m_prims[i], m_faces[i], w, h, cfg.flipV, cfg.normalizeOrigin);
+					ApplyFaceUV(m_prims[i], m_faces[i], 1, 1, cfg.flipV, cfg.normalizeOrigin);
 				}
 
 				m_temp_org_prims = m_prims;
@@ -572,6 +573,36 @@ namespace ng {
 			}
 
 
+			struct CanonPlane { double n[3]; double d; };
+
+			// Gibt true zurueck und setzt flipped, wenn (n,d) zu c passt
+			inline bool MatchPlane(const CanonPlane& c, const double n[3], double d,
+				double angEps, double distEps, bool& flipped)
+			{
+				const double dot = c.n[0] * n[0] + c.n[1] * n[1] + c.n[2] * n[2];
+				if (dot > 1.0 - angEps && std::abs(c.d - d) < distEps) { flipped = false; return true; }
+				if (dot < -(1.0 - angEps) && std::abs(c.d + d) < distEps) { flipped = true;  return true; }
+				return false;
+			}
+
+			// Fuer jede Brush-Flaeche aufrufen (vor MakeUnion), canon ist eine
+			// gemeinsame std::vector<CanonPlane> fuer ALLE Brushes.
+			inline void SnapPlane(std::vector<CanonPlane>& canon, double n[3], double& d)
+			{
+				for (const auto& c : canon)
+				{
+					bool flipped;
+					if (MatchPlane(c, n, d, 1e-6, 0.01, flipped))
+					{
+						const double s = flipped ? -1.0 : 1.0;
+						n[0] = c.n[0] * s; n[1] = c.n[1] * s; n[2] = c.n[2] * s;
+						d = c.d * s;
+						return;
+					}
+				}
+				canon.push_back({ {n[0], n[1], n[2]}, d });
+			}
+
 			inline void MakeUnion(Brush<T>& brush, bool strong = true, bool rebuild = true)
 			{
 				//---------------------------------------------------------
@@ -606,8 +637,9 @@ namespace ng {
 				//---------------------------------------------------------
 				for (auto& p : m_prims)
 				{
+					const T kOutsideMargin = (T)0.05;   // deutlich groesser als das Rauschen der Ebene
 					bool provably_outside = false;
-					for (const auto& face : cutter.m_temp_org_prims)
+					/*for (const auto& face : cutter.m_temp_org_prims)
 					{
 						int result = p.classify(face.plane());
 
@@ -616,6 +648,14 @@ namespace ng {
 							provably_outside = true;
 							break;
 						}
+					}*/
+					for (const auto& face : cutter.m_temp_org_prims)
+					{
+						T minDist = std::numeric_limits<T>::max();
+						for (const auto& v : p.verts())
+							minDist = std::min(minDist, face.plane().distance(v.world()));   // <-- v.world()
+
+						if (minDist > kOutsideMargin) { provably_outside = true; break; }
 					}
 
 					if (provably_outside)
@@ -666,7 +706,42 @@ namespace ng {
 			}
 
 
+			// Debug: zaehlt Flaechenpaare dieses und eines anderen Brushes, die geometrisch
+// (fast) koplanar sind, aber von classify() nicht als PLANAR erkannt werden.
+			template <class T>
+			inline int DebugNearCoplanarWith(Brush<T>& other, int brushIdxA, int brushIdxB)
+			{
+				int found = 0;
 
+				for (auto& a : m_temp_org_prims)
+				{
+					for (auto& b : other.m_temp_org_prims)
+					{
+						const T dot = a.plane().normal() ^ b.plane().normal();
+						if (std::abs(dot) < (T)0.9999) continue;   // nicht parallel
+
+						// Abstand aller Vertices von b zur Ebene von a
+						T maxDist = (T)0;
+						for (auto& v : b.verts())
+						{
+							const T d = std::abs(a.plane().distance(v.world()));
+							if (d > maxDist) maxDist = d;
+						}
+
+						const int cls = b.classify(a.plane());
+						if (maxDist < (T)0.5 && cls != math::RayPlaneLine<3, T>::PLANAR)
+						{
+							printf("[CSG] brush %d/%d dot=%.9f maxDist=%.3e cls=%d (FRONT=%d BACK=%d SPANNING=%d PLANAR=%d) eps=%.3e\n",
+								brushIdxA, brushIdxB, (double)dot, (double)maxDist, cls,
+								(int)math::RayPlaneLine<3, T>::FRONT, (int)math::RayPlaneLine<3, T>::BACK,
+								(int)math::RayPlaneLine<3, T>::SPANNING, (int)math::RayPlaneLine<3, T>::PLANAR,
+								(double)math::EPSILON<T>);
+							++found;
+						}
+					}
+				}
+				return found;
+			}
 		private:
 			friend Brush < T >;
 			std::vector <BrushPoly<T>> m_temp_org_prims;
@@ -711,7 +786,7 @@ namespace ng {
 						const UVSettings& cfg = GetUVSettings();
 						if (cfg.texSize)
 						{
-							int w = 64, h = 64;
+							int w = 1, h = 1;
 							cfg.texSize(m_faces[i].texture(), w, h);
 							ApplyFaceUV(p, m_faces[i], w, h, cfg.flipV, cfg.normalizeOrigin);
 						}
@@ -773,11 +848,25 @@ namespace ng {
 	namespace map::csg {
 
 
+		
+
+		template <class T>
+		inline void DebugNearCoplanar( std::vector<Brush<T>>& brushes)
+		{
+			int total = 0;
+			for (size_t i = 0; i < brushes.size(); ++i)
+				for (size_t j = i + 1; j < brushes.size(); ++j)
+				{
+					if (!brushes[j].IntersectedByBounds(brushes[i])) continue;
+					total += brushes[i].DebugNearCoplanarWith(brushes[j], (int)i, (int)j);
+				}
+			printf("[CSG] %d near-coplanar Faelle\n", total);
+		}
 		template <class T>
 		inline std::vector<Brush<T>> MakeUnion(const std::vector<Brush<T>>& m_solid_brushs, bool rebuild_brusches = false)
 		{
-
 			std::vector<Brush<T>> solid_brushs = m_solid_brushs;
+			DebugNearCoplanar(solid_brushs);
 
 
 			for (unsigned int i = 0; i < solid_brushs.size(); i++)
@@ -804,6 +893,7 @@ namespace ng {
 
 					{
 
+						
 						solid_brushs[i].MakeUnion(solid_brushs[j], false, rebuild_brusches);
 						solid_brushs[j].MakeUnion(solid_brushs[i], true, rebuild_brusches);
 						continue;

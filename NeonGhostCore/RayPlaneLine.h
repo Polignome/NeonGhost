@@ -10,6 +10,9 @@
 namespace ng {
     namespace math {
 
+        template <class T>
+        constexpr T PLANE_EPSILON = (T)1e-4;   // Distanz zur Ebene in Welteinheiten
+
         template <unsigned int N, class T>
         class RayPlaneLine
         {
@@ -114,14 +117,13 @@ namespace ng {
                 return (point ^ normal()) + D();
             }
 
-            // GEAENDERT: Vorzeichen an die uebliche Konvention angepasst.
-            // Vorher: d > EPS -> BACK, d < -EPS -> FRONT.
+            
             inline int classify(const math::Matrix<3, 1, T>& v) const
             {
                 const T d = distance(v);
 
-                if (d > math::EPSILON<T>) return FRONT;
-                if (d < -math::EPSILON<T>) return BACK;
+                if (d > math::PLANE_EPSILON<T>) return FRONT;
+                if (d < -math::PLANE_EPSILON<T>) return BACK;
                 return PLANAR;
             }
 

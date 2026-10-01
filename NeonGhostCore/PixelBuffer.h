@@ -1,6 +1,11 @@
 #pragma once
 #include <memory>
 #include <vector>
+
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <algorithm>
 #include "Global.h"
 #include "matrix.h"
 #include "Lock.h"
@@ -110,6 +115,61 @@ namespace ng {
 					CopyFrom(src, 0, 0, Width(), Height(),0,0);
 				}
 
+
+				// In PixelBufferRGBA (Texture.h), oeffentliche Methode.
+
+				inline bool SaveAsBMP(const char* path, float boost = 1.0f) const
+				{
+					const int w = Width(), h = Height();
+					if (w <= 0 || h <= 0) return false;
+
+					const int rowBytes = (w * 3 + 3) & ~3;                 // Zeilen auf 4 Byte aufgefuellt
+					const uint32_t dataSize = (uint32_t)(rowBytes * h);
+					const uint32_t fileSize = 54 + dataSize;
+
+#ifdef _MSC_VER
+					FILE* f = nullptr;
+					if (fopen_s(&f, path, "wb") != 0 || !f) return false;
+#else
+					FILE* f = fopen(path, "wb");
+					if (!f) return false;
+#endif
+
+					unsigned char hdr[54] = { 0 };
+					hdr[0] = 'B'; hdr[1] = 'M';
+					const uint32_t off = 54, dib = 40;
+					const uint16_t planes = 1, bpp = 24;
+					memcpy(hdr + 2, &fileSize, 4);
+					memcpy(hdr + 10, &off, 4);
+					memcpy(hdr + 14, &dib, 4);
+					memcpy(hdr + 18, &w, 4);
+					memcpy(hdr + 22, &h, 4);
+					memcpy(hdr + 26, &planes, 2);
+					memcpy(hdr + 28, &bpp, 2);
+					memcpy(hdr + 34, &dataSize, 4);
+					fwrite(hdr, 1, 54, f);
+
+					auto conv = [boost](uint32_t v) -> unsigned char
+						{
+							return (unsigned char)std::min(255.0f, float(v) * boost);
+						};
+
+					std::vector<unsigned char> row(rowBytes, 0);
+					for (int y = h - 1; y >= 0; --y)                       // BMP speichert von unten nach oben
+					{
+						for (int x = 0; x < w; ++x)
+						{
+							const uint32_t px = GetPixel(x, y);
+							row[x * 3 + 0] = conv(RGBToBlue(px));
+							row[x * 3 + 1] = conv(RGBToGreen(px));
+							row[x * 3 + 2] = conv(RGBToRed(px));
+						}
+						fwrite(row.data(), 1, rowBytes, f);
+					}
+
+					fclose(f);
+					return true;
+				}
 
 				inline void CopyFrom(
 					const PixelBufferRGBA& src,

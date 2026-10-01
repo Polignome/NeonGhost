@@ -55,9 +55,10 @@
 
 #include "SkyBoxGen.h"
 
-#include "MeshGenerator.h"
 
-#include "LightmapBuilder.h"
+
+#include "Lightmap.h"
+#include "Radiosity.h"
 
 #include "WaveformObj.h"
 #ifndef NG_BIND_MANAGER

@@ -52,13 +52,21 @@ static std::vector<float> m_out_cellscount;
 
 static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
-static ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
-static ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
-static ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
-static ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
+// Member der Anwendung
+static ng::renderer::rasterizer::LightmapCorrection m_lmCorr;
+
+struct BspScene {
+
+    ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
+    ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
+    ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
+    ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
+};
+
+static BspScene m_bsp_scene;
 
 
-static ng::controller::PlayerController<NG_MATH_FLOAT> m_player(m_bsp);
+static ng::controller::PlayerController<NG_MATH_FLOAT> m_player(m_bsp_scene.m_bsp);
 
 inline void Render2DWindow(bool& m_software_renderer_visible)
 {
@@ -1329,7 +1337,7 @@ inline void SomeDebugStuff() {
                 ImGui::PlotLines("##Cells", m_out_cellscount.data(), (int)m_out_cellscount.size(), 0, "Cells out", 0.0f, m_max_out_cells, ImVec2((float)width, 40));
             }
 
-            if (ImGui::CollapsingHeader("Infio")) 
+            if (ImGui::CollapsingHeader("Infio"))
             {
                 ImGui::TextColored(ImVec4(1, green, 1, 1), "Width....................................: %i", m_rasterizer_3d.Width());
                 ImGui::TextColored(ImVec4(1, green, 1, 1), "Height...................................: %i", m_rasterizer_3d.Height());
@@ -1410,6 +1418,22 @@ inline void SomeDebugStuff() {
                 }
                 else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
             }
+            if (ImGui::CollapsingHeader("Lighting")) {
+                static float gamma = 1;
+                static float brightness = 2;
+
+                ImGui::SliderFloat("Gamma", &gamma, 0, 2);
+                ImGui::SliderFloat("Brightness", &brightness, 0, 2);
+                if (ImGui::Button("Apply")) {
+                    m_lmCorr.brightness = brightness;
+                    m_lmCorr.gamma = gamma;
+                    m_lmCorr.Rebuild();
+
+                }
+                
+            }
+
+
             help = (int)ImGui::GetCursorScreenPos().y;
             ImGui::EndChild();
             }

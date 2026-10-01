@@ -178,7 +178,7 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 				{
 					std::string v1 = "";
 					//[0.0 0.0 0.0 0.0] 0.0
-
+					/*
 					v1 += str[index + 16]; v1 += " ";// [
 					v1 += str[index + 17]; v1 += " ";// a
 					v1 += str[index + 18]; v1 += " ";// b
@@ -186,15 +186,24 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 					v1 += str[index + 20]; v1 += " ";// d
 					v1 += str[index + 21]; v1 += " ";// ]
 					v1 += str[index + 29]; v1 += " ";// scaleu
+					*/
 
-					this->AddParameter("uaxis", v1);
+#ifdef SWAP_AXIS
+						v1 += str[index + 16] + " " + str[index + 18] + " " + str[index + 19] + " " + str[index + 17] + " "
+						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
+					#else
+						v1 += str[index + 16] + " " + str[index + 17] + " " + str[index + 18] + " " + str[index + 19] + " "
+						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
+					#endif
+					
+						this->AddParameter("uaxis", v1);
 
 				}
 
 				{
 					std::string v1 = "";
 					//[0.0 0.0 0.0 0.0] 0.0
-
+					/*
 					v1 += str[index + 22]; v1 += " ";// [
 					v1 += str[index + 23]; v1 += " ";// a
 					v1 += str[index + 24]; v1 += " ";// b
@@ -202,6 +211,15 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 					v1 += str[index + 26]; v1 += " ";// d
 					v1 += str[index + 27]; v1 += " ";// ]
 					v1 += str[index + 30]; v1 += " ";// scalev
+					*/
+
+#ifdef SWAP_AXIS
+					v1 = str[index + 22] + " " + str[index + 24] + " " + str[index + 25] + " " + str[index + 23] + " "
+						+ str[index + 26] + " " + str[index + 27] + " " + str[index + 30];
+#else
+					v1 = str[index + 22] + " " + str[index + 23] + " " + str[index + 24] + " " + str[index + 25] + " "
+						+ str[index + 26] + " " + str[index + 27] + " " + str[index + 30];
+#endif
 
 					this->AddParameter("vaxis", v1);
 				}
@@ -214,6 +232,24 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 					v1 += str[index + 28]; //rotate
 
 					this->AddParameter("rotate", v1);
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 29]; //rotate
+
+					this->AddParameter("usvale", v1);
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 30]; //rotate
+
+					this->AddParameter("vsvale", v1);
 				}
 
 

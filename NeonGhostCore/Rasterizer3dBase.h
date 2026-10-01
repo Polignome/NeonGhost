@@ -162,6 +162,33 @@ namespace ng::renderer::rasterizer
             return mip.GetRawBuffer()[(size_t)y * w + x];
             
         }
+
+        template<class T>
+        inline uint32_t SampleLightmapBilinear( T u, T v) const
+        {
+            const int w = texture->Width(), h = texture->Height();
+            const float x = float(u) * w - 0.5f;
+            const float y = float(v) * h - 0.5f;
+
+            const int x0 = std::clamp((int)std::floor(x), 0, w - 1);
+            const int y0 = std::clamp((int)std::floor(y), 0, h - 1);
+            const int x1 = std::min(x0 + 1, w - 1);
+            const int y1 = std::min(y0 + 1, h - 1);
+            const float fx = std::clamp(x - std::floor(x), 0.0f, 1.0f);
+            const float fy = std::clamp(y - std::floor(y), 0.0f, 1.0f);
+
+            const uint32_t p00 = texture->GetPixel(x0, y0), p10 = texture->GetPixel(x1, y0);
+            const uint32_t p01 = texture->GetPixel(x0, y1), p11 = texture->GetPixel(x1, y1);
+
+            auto ch = [&](int shift) -> uint32_t {
+                const float a = ((p00 >> shift) & 0xff) * (1 - fx) + ((p10 >> shift) & 0xff) * fx;
+                const float b = ((p01 >> shift) & 0xff) * (1 - fx) + ((p11 >> shift) & 0xff) * fx;
+                return (uint32_t)(a * (1 - fy) + b * fy + 0.5f);
+                };
+            return (ch(24) << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0);
+        }
+       
+
         // Mip-Level aus den Bildschirmraum-Ableitungen von u/v waehlen.
         // rho = Texel-pro-Pixel-Verhaeltnis, bezogen auf die Originalgroesse
         // (Level 0) - die Mip-Kette selbst halbiert sich pro Stufe, das
@@ -224,7 +251,29 @@ namespace ng::renderer::rasterizer
         RASTER_WOBBLE = 1 << 1u << 8 // Nur beim spanrenderer
     };
 
-    
+    struct LightmapCorrection
+    {
+        float gamma = 1.0f;   // 1.0 = aus, 1.6 bis 2.2 = heller
+        float brightness = 1.0f;   // linearer Faktor, 1.0 = aus, 2.0 = Overbright
+
+        uint8_t  lut[256];         // Gamma-Tabelle
+        uint32_t scale = 0;        // Brightness als Festkomma (siehe Shader)
+
+        LightmapCorrection() { Rebuild(); }
+
+        void Rebuild()
+        {
+            const float invG = 1.0f / std::max(0.1f, gamma);
+            for (int i = 0; i < 256; ++i)
+            {
+                const float v = std::pow(i / 255.0f, invG);
+                lut[i] = (uint8_t)std::clamp(v * 255.0f + 0.5f, 0.0f, 255.0f);
+            }
+            // br*lr*brightness/255  ==  (br*lr*scale) >> 16
+            scale = (uint32_t)(std::clamp(brightness, 0.0f, 16.0f) * 65536.0f / 255.0f + 0.5f);
+        }
+    };
+
     template<class T>
     struct DrawState
     {
@@ -256,6 +305,8 @@ namespace ng::renderer::rasterizer
         uint32_t(*colorFn)(const Fragment<T>&, const DrawState<T>&) = nullptr;
         void     (*writeFn)(RenderTarget<T>&, size_t offset, uint32_t color, const DrawState<T>&) = nullptr;
         DepthFuncPtr<T> depthFn = nullptr;
+
+        const LightmapCorrection* lmCorrection = nullptr;
 
         T dU_dx = 0;
         T dU_dy = 0;
@@ -307,6 +358,10 @@ namespace ng::renderer::rasterizer
         return (dValue * invW - value * dInvW) * invW2;
     }
     */
+
+
+   
+
     template<class T>
         inline uint32_t ColorTexture(const Fragment<T>& f, const DrawState<T>& st)
     {
@@ -336,6 +391,8 @@ namespace ng::renderer::rasterizer
 
         return RGBA(tr, tg, tb, ta);
     }
+   
+        /*
         template<class T>
         inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
         {
@@ -351,8 +408,9 @@ namespace ng::renderer::rasterizer
             // liegt. Level 0 ist bei Lightmaps unkritisch, da sie ohnehin schon
             // niedrig aufgeloest und weichgezeichnet sind.
             
-            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
-
+            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv,0);
+          //  base = lm;
+            
             uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
             uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
             uint32_t r = std::min(255u, (br * lr) / 255u);
@@ -360,6 +418,7 @@ namespace ng::renderer::rasterizer
             uint32_t b = std::min(255u, (bb * lb) / 255u);
             return (ba << 24) | (r << 16) | (g << 8) | b;
         }
+        
         /*
     template<class T>
     inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
@@ -377,6 +436,37 @@ namespace ng::renderer::rasterizer
         return (ba << 24) | (r << 16) | (g << 8) | b;
     }
     */
+
+        template<class T>
+        inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
+        {
+            uint32_t base = ColorTexture(f, st);
+            if (!st.lightmapTex) return base;
+
+            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
+
+            uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
+            uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
+
+            uint32_t r, g, b;
+            if (st.lmCorrection)
+            {
+                const auto& c = *st.lmCorrection;
+                lr = c.lut[lr]; lg = c.lut[lg]; lb = c.lut[lb];
+
+                r = std::min(255u, (br * lr * c.scale) >> 16);
+                g = std::min(255u, (bg * lg * c.scale) >> 16);
+                b = std::min(255u, (bb * lb * c.scale) >> 16);
+            }
+            else
+            {
+                r = (br * lr) / 255u;
+                g = (bg * lg) / 255u;
+                b = (bb * lb) / 255u;
+            }
+            return (ba << 24) | (r << 16) | (g << 8) | b;
+        }
+
     template<class T>
     inline void SelectColorFn_Impl(uint32_t flags, uint32_t(**out)(const Fragment<T>&, const DrawState<T>&))
     {

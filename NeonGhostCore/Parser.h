@@ -109,7 +109,7 @@ namespace ng {
 			return 0;
 
 		}
-
+		/*
 		template < class T>
 		inline int GetEntity(TEntityParam entity, math::Matrix<4, 1, T>& v, T& a) {
 			if (entity.values.size() != 5) return -1;
@@ -125,7 +125,20 @@ namespace ng {
 			return 0;
 
 		}
+		*/
 
+		// values: [ "[", a, b, c, d, "]", scale ]
+		template <class T>
+		inline int GetEntity(TEntityParam entity, math::Matrix<4, 1, T>& v, T& a) {
+			if (entity.values.size() != 7) return -1;
+			if (entity.values[0] != "[" || entity.values[5] != "]") return -2;
+			v.x() = (T)std::stod(entity.values[1]);
+			v.y() = (T)std::stod(entity.values[2]);
+			v.z() = (T)std::stod(entity.values[3]);
+			v.w() = (T)std::stod(entity.values[4]);   // Offset in Texeln
+			a = (T)std::stod(entity.values[6]);   // Scale
+			return 0;
+		}
 		inline int GetEntity(TEntityParam entity, std::string& v) {
 			if (entity.values.size() != 1) return -1;
 			v = entity.values[0];

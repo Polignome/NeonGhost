@@ -384,7 +384,10 @@
     <ClInclude Include="LightMapAtlas.h">
       <Filter>Headerdateien\Light</Filter>
     </ClInclude>
-    <ClInclude Include="LightmapBuilder.h">
+    <ClInclude Include="Lightmap.h">
+      <Filter>Headerdateien\Light</Filter>
+    </ClInclude>
+    <ClInclude Include="Radiosity.h">
       <Filter>Headerdateien\Light</Filter>
     </ClInclude>
   </ItemGroup>

@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <chrono>
 #include <unordered_map>
-
+#include <random>
 namespace ng
 {
     namespace bsp
@@ -74,6 +74,40 @@ namespace ng
             math::Matrix<3, 1, T> lmEdgeU;
             math::Matrix<3, 1, T> lmEdgeV;
 
+
+            // Nach dem Erzeugen von polys/extra_polys, bevor der BSP gebaut wird:
+            
+            void FinalizeTextureUVs( bool flipV=false)
+            {
+                
+                
+                if (!texture) return;
+                    const T invW = T(1) / T(std::max(1, texture->Width()));
+                    const T invH = T(1) / T(std::max(1, texture->Height()));
+
+                    T minU = std::numeric_limits<T>::max();
+                    T minV = std::numeric_limits<T>::max();
+                    for (auto& v : verts)
+                    {
+                        T u = v.texture().x() * invW;
+                        T t = v.texture().y() * invH;
+                        if (flipV) t = T(1) - t;
+                        v.texture().x() = u;
+                        v.texture().y() = t;
+                        minU = std::min(minU, u);
+                        minV = std::min(minV, t);
+                    }
+
+                    // Ganzzahliger Versatz: Wiederholung bleibt exakt erhalten
+                    const T du = std::floor(minU), dv = std::floor(minV);
+                    for (auto& v : verts)
+                    {
+                        v.texture().x() -= du;
+                        v.texture().y() -= dv;
+                    }
+                
+            }
+
             static BSPPolygon FromTriangle(
                 const Vertex& v0, const Vertex& v1, const Vertex& v2,
                 int materialId = -1, uint32_t objectId = 0)
@@ -87,6 +121,11 @@ namespace ng
                 return poly;
             }
         };
+
+
+
+
+
 
         // ------------------------------------------------------------
         // Interpoliert alle Vertex-Attribute.
@@ -983,6 +1022,9 @@ namespace ng
             inline bool isLeaf() const { return (m_state & LEAF) != 0; }
             inline std::shared_ptr<BSPNode<T>> GetFrontNode() { return m_front_node; }
             inline std::shared_ptr<BSPNode<T>> GetBackNode() { return m_back_node; }
+            inline std::shared_ptr<BSPNode<T>> GetFrontNode() const { return m_front_node; }  // NEU: const
+            inline std::shared_ptr<BSPNode<T>> GetBackNode() const { return m_back_node; }    // NEU: const
+
             inline const std::vector<BSPPolygon<T>>& GetPolygons() const { return polys; }
 
             // Extra-Polygone (Wasser, Glas, ...) und Volumen-Stuecke dieses Leaves.
@@ -1440,6 +1482,8 @@ namespace ng
             inline const std::shared_ptr<BSPNode<T>>& GetRoot() const { return m_root; }
             inline const std::vector<std::shared_ptr<BSPNode<T>>>& GetLeaves() const { return m_leaflist; }
             inline const std::vector<Portal<T>>& GetPortals() const { return m_portals; }
+
+
 
             // --------------------------------------------------------
             // Punkt -> Leaf-ID (-1 wenn kein Baum)
@@ -2008,6 +2052,265 @@ namespace ng
                 m_portals.push_back(portal);
             }
         };
+
+
+        // ------------------------------------------------------------
+   // BSPRayTest / BSPRayOccluded / BSPRayNearestHit
+   //
+   // Traversiert einen BSPTree entlang eines Strahls und liefert den
+   // naechsten Treffer, ohne alle Polygone der Szene testen zu muessen.
+   // Macht Lightmap-/Radiosity-Occlusion um Groessenordnungen schneller
+   // bei vielen Polygonen.
+   //
+   // "excludeSource" schliesst ein Polygon per Zeigervergleich aus -
+   // nuetzlich, wenn Aufrufer und Baum DIESELBEN Objekte referenzieren.
+   // Arbeitet der Baum mit eigenen Kopien (z.B. der BSPTree einer Map),
+   // greift dieser Ausschluss nicht - tMin=eps verhindert Selbsttreffer
+   // dann stattdessen ueber die Distanz (der Strahl startet exakt auf
+   // der eigenen Ebene, t waere dort ~0 und faellt unter tMin).
+   // ------------------------------------------------------------
+        template<class T>
+        struct BSPRayHit
+        {
+            bool hit = false;
+            T t = std::numeric_limits<T>::max();
+            const ng::bsp::BSPPolygon<T>* poly = nullptr;
+        };
+
+        template<class T>
+        bool RayIntersectsPolygon(const ng::math::Matrix<3,1,T>& origin, const ng::math::Matrix<3,1,T>& dir,
+            const ng::bsp::BSPPolygon<T>& poly, T& outT, T eps)
+        {
+            const ng::math::Matrix<3,1,T> n = poly.plane.normal();
+            const T denom = n(0) * dir(0) + n(1) * dir(1) + n(2) * dir(2);
+            if (std::abs(denom) < eps) return false;
+
+            const T denomEps = T(1e-6); // FIX: fester, kleiner Wert fuer den Dot-Product-Test - unabhaengig von posEp
+            if (std::abs(denom) < denomEps) return false;   // <- statt posEps
+
+            const T t = -poly.plane.distance(origin) / denom;
+            if (t < eps) return false;
+
+
+
+
+
+            outT = t;
+            const ng::math::Matrix<3,1,T> p = origin + dir * t;
+
+            const size_t cnt = poly.verts.size();
+            bool sign = false;
+            bool first = true;
+
+            for (size_t i = 0; i < cnt; ++i)
+            {
+                const ng::math::Matrix<3,1,T> a = poly.verts[i].world();
+                const ng::math::Matrix<3,1,T> b = poly.verts[(i + 1) % cnt].world();
+                const ng::math::Matrix<3,1,T> edge = b - a;
+                const ng::math::Matrix<3,1,T> toP = p - a;
+                const ng::math::Matrix<3,1,T> c = edge % toP;
+                const T d = c(0) * n(0) + c(1) * n(1) + c(2) * n(2);
+
+                const bool s = d >= T(0);
+                if (first) { sign = s; first = false; }
+                else if (s != sign) return false; // ausserhalb des konvexen Polygons
+            }
+
+            return true;
+        }
+
+
+
+        template<class T>
+        BSPRayHit<T> BSPRayTest(
+            const ng::bsp::BSPNode<T>* node,
+            const ng::math::Matrix<3,1,T>& origin,
+            const ng::math::Matrix<3,1,T>& dir,
+            T tMin, T tMax,
+            T eps,
+            const ng::bsp::BSPPolygon<T>* excludeSource = nullptr)
+        {
+            if (!node) return BSPRayHit<T>{};
+
+            if (node->isLeaf())
+            {
+                BSPRayHit<T> best;
+
+                for (const auto& poly : node->GetPolygons())
+                {
+                    if (&poly == excludeSource) continue;
+                    if (poly.verts.size() < 3) continue;
+
+                    T t;
+                    if (RayIntersectsPolygon(origin, dir, poly, t, eps) && t >= tMin && t <= tMax)
+                    {
+                        if (t < best.t)
+                        {
+                            best.hit = true;
+                            best.t = t;
+                            best.poly = &poly;
+                        }
+                    }
+                }
+
+                return best;
+            }
+
+            const auto plane = node->GetPlane();
+            const T denom = plane.normal()(0) * dir(0) + plane.normal()(1) * dir(1) + plane.normal()(2) * dir(2);
+            const T originDist = plane.distance(origin);
+
+            auto front = node->GetFrontNode();
+            auto back = node->GetBackNode();
+
+            // Dieselbe eps-Schwelle wie ClassifyVerts im BSP-Build (BSP.h) -
+            // statt einer harten ">=0"-Grenze, die bei Punkten SEHR nah an der
+            // Ebene (z.B. Lightmap-Texel, die exakt auf einer Wandflaeche
+            // liegen, die selbst als Splitter benutzt wurde - das ist der
+            // Normalfall!) durch numerisches Rauschen zufaellig die falsche
+            // Seite waehlen kann. Bei Unsicherheit werden beide Seiten besucht.
+            if (std::abs(denom) < eps || std::abs(originDist) <= eps)
+            {
+                BSPRayHit<T> hitA = BSPRayTest(front.get(), origin, dir, tMin, tMax, eps, excludeSource);
+                BSPRayHit<T> hitB = BSPRayTest(back.get(), origin, dir, tMin, tMax, eps, excludeSource);
+
+                if (!hitA.hit) return hitB;
+                if (!hitB.hit) return hitA;
+                return (hitA.t <= hitB.t) ? hitA : hitB;
+            }
+            /*
+            const T tPlane = -originDist / denom;
+
+            const ng::bsp::BSPNode<T>* nearNode = (originDist > T(0)) ? front.get() : back.get();
+            const ng::bsp::BSPNode<T>* farNode = (originDist > T(0)) ? back.get() : front.get();
+
+            if (tPlane < tMin)
+                return BSPRayTest(farNode, origin, dir, tMin, tMax, eps, excludeSource);
+
+            if (tPlane > tMax)
+                return BSPRayTest(nearNode, origin, dir, tMin, tMax, eps, excludeSource);
+
+            BSPRayHit<T> nearHit = BSPRayTest(nearNode, origin, dir, tMin, tPlane, eps, excludeSource);
+            if (nearHit.hit) return nearHit;
+
+            return BSPRayTest(farNode, origin, dir, tPlane, tMax, eps, excludeSource);
+            */
+
+            const T tPlane = -originDist / denom;
+
+            const ng::bsp::BSPNode<T>* nearNode = (originDist > T(0)) ? front.get() : back.get();
+            const ng::bsp::BSPNode<T>* farNode = (originDist > T(0)) ? back.get() : front.get();
+
+            // Ebene liegt hinter dem Ursprung ODER hinter dem Strahlende:
+            // der Strahl verlaesst die Ursprungsseite nie -> nur nearNode.
+            if (tPlane < tMin || tPlane > tMax)
+                return BSPRayTest(nearNode, origin, dir, tMin, tMax, eps, excludeSource);
+
+            // Strahl quert die Ebene: erst nah, dann fern.
+            BSPRayHit<T> nearHit = BSPRayTest(nearNode, origin, dir, tMin, tPlane, eps, excludeSource);
+            if (nearHit.hit) return nearHit;
+
+            return BSPRayTest(farNode, origin, dir, tPlane, tMax, eps, excludeSource);
+        }
+
+        template<class T>
+        inline bool BSPRayOccluded(
+            const ng::bsp::BSPTree<T>& tree,
+            const ng::math::Matrix<3,1,T>& origin,
+            const ng::math::Matrix<3,1,T>& dir,
+            T maxDist,
+            T eps,
+            const ng::bsp::BSPPolygon<T>* excludeSource = nullptr)
+        {
+            auto hit = BSPRayTest(tree.GetRoot().get(), origin, dir, eps, maxDist, eps, excludeSource);
+            return hit.hit;
+        }
+
+        template<class T>
+        inline BSPRayHit<T> BSPRayNearestHit(
+            const ng::bsp::BSPTree<T>& tree,
+            const ng::math::Matrix<3,1,T>& origin,
+            const ng::math::Matrix<3,1,T>& dir,
+            T maxDist,
+            T eps,
+            const ng::bsp::BSPPolygon<T>* excludeSource = nullptr)
+        {
+            return BSPRayTest(tree.GetRoot().get(), origin, dir, eps, maxDist, eps, excludeSource);
+        }
+
+
+        // TEMP-DEBUG: direkt nach dem Bake-Aufruf, VOR Radiosity, einmalig ausführen
+        template<class T>
+        void DebugCompareBSPvsBruteforce(
+            const ng::bsp::BSPTree<T>& tree,
+            const std::vector<ng::bsp::BSPPolygon<T>>& allPolys,
+            int numTestRays,
+            T eps)
+        {
+            std::mt19937 rng(42);
+            std::uniform_real_distribution<double> dist01(0.0, 1.0);
+
+            int mismatches = 0;
+
+            for (int i = 0; i < numTestRays; ++i)
+            {
+                // Zufaelliges Polygon, zufaelligen Punkt darauf, zufaellige Richtung
+                if (allPolys.empty()) break;
+                const auto& poly = allPolys[rng() % allPolys.size()];
+                if (poly.verts.size() < 3) continue;
+
+                // Punkt = grober Schwerpunkt des Polygons
+                ng::math::Matrix<3,1,T> origin(0, 0, 0);
+                for (const auto& v : poly.verts) origin = origin + v.world();
+                origin = origin * (T(1) / T(poly.verts.size()));
+                origin = origin + poly.plane.normal() * T(0.5); // leicht ueber die Flaeche
+
+                // Zufaellige Richtung ueber die Hemisphaere um die Normale
+                const T u1 = (T)dist01(rng), u2 = (T)dist01(rng);
+                const T r = std::sqrt(u1);
+                const T theta = T(2.0 * 3.14159265358979323846) * u2;
+                ng::math::Matrix<3,1,T> n = poly.plane.normal();
+                ng::math::Matrix<3,1,T> axis(0, 0, 0);
+                if (std::abs(n(0)) <= std::abs(n(1)) && std::abs(n(0)) <= std::abs(n(2))) axis(0) = T(1);
+                else if (std::abs(n(1)) <= std::abs(n(2))) axis(1) = T(1); else axis(2) = T(1);
+                ng::math::Matrix<3,1,T> tangent = axis % n; tangent.normalize();
+                ng::math::Matrix<3,1,T> bitangent = n % tangent; bitangent.normalize();
+                ng::math::Matrix<3,1,T> dir = tangent * (r * std::cos(theta)) + bitangent * (r * std::sin(theta)) + n * std::sqrt(std::max(T(0), T(1) - u1));
+
+                const T maxDist = T(2000);
+
+                // BSP-Ergebnis
+                bool bspHit = BSPRayOccluded(tree, origin, dir, maxDist, eps, &poly);
+
+                // Brute-Force-Ergebnis
+                bool bruteHit = false;
+                T bestT = maxDist;
+                for (const auto& p2 : allPolys)
+                {
+                    if (&p2 == &poly) continue;
+                    T t;
+                    if (ng::bsp::RayIntersectsPolygon(origin, dir, p2, t, eps) && t < bestT)
+                    {
+                        bruteHit = true;
+                        break;
+                    }
+                }
+
+                if (bspHit != bruteHit)
+                {
+                    ++mismatches;
+                    if (mismatches <= 10)
+                        printf("[DEBUG] Mismatch #%d: BSP=%d Brute=%d origin=(%.1f,%.1f,%.1f) dir=(%.2f,%.2f,%.2f)\n",
+                            mismatches, bspHit, bruteHit,
+                            (double)origin(0), (double)origin(1), (double)origin(2),
+                            (double)dir(0), (double)dir(1), (double)dir(2));
+                }
+            }
+
+            printf("[DEBUG] %d/%d Rays getestet, %d Abweichungen (%.1f%%)\n",
+                numTestRays, numTestRays, mismatches, 100.0 * mismatches / std::max(1, numTestRays));
+        }
+
 
     } // namespace bsp
 } // namespace ng

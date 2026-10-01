@@ -22,8 +22,9 @@
 #include "HalfLife.h"
 #include <Bspcollision.h>
 #include <Map.h>
-#include <LightmapBuilder.h>
-#include <LightMapAtlas.h>
+#include <Lightmap.h>
+#include <Radiosity.h>
+
 
 #pragma comment(lib,"SDL2.lib")
 #pragma comment(lib,"SDL2main.lib")
@@ -86,20 +87,7 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
             if (ImGui::Selectable(m.name.c_str(), mount == m.name)) mount = m.name;
         }
         ImGui::EndChild();
-        /*
-        ImGui::SameLine();
         
-        
-        
-        auto entrys = ng::io::vfs::VFSFileManager::List(mount);
-
-        ImGui::BeginChild("VFSFileList", ImVec2(width, height), ImGuiChildFlags_Borders);
-        for (auto e : entrys) {
-            if (ImGui::Selectable(e.name.c_str(), entry == e.name)) entry = e.name;
-        }
-        ImGui::EndChild();
-        */
-
         
 
         if (ImGui::Button("Select")) {
@@ -165,12 +153,7 @@ inline void Render() {
 
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
   
-    /*
-    ng::renderer::gfx::Texture testtexture = ng::resource::TextureResourceManager::GetResource("Texture1", true);
-    ng::renderer::rasterizer::TextureView textview;
-    textview.texture = testtexture;
-    m_rasterizer_3d.State().diffuseTex = &textview;
-    */
+   
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
 
     m_render_pipeline_3d.ModelViewMatrix() = m_camera.ViewMatrix();
@@ -182,22 +165,18 @@ inline void Render() {
     m_render_pipeline_3d.Begin();
 
     
-    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR | ng::renderer::rasterizer::RASTER_TEXTURE;
+    
+    
+    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
-    
-    //  for (auto bp : m_map_brush_polys) m_render_pipeline_3d.RenderPolygon(bp.verts());
-    //  m_render_pipeline_3d.RenderMesh(m_mesh_obj);
-    //  RenderBsp(m_bsp);
-    /*
-    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, [&](int mat)
-        {
-            m_rasterizer_3d.State().diffuseTex=&textview;
-
-        });
-    */
-    
     m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, m_bsp_lightmap);
     
+    m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
+
+
+    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+    
+
     for (auto m : m_mesh_obj)
         m_render_pipeline_3d.RenderMesh(m);
 
@@ -544,8 +523,6 @@ int main(int argc, char** argv) {
 
             }
 
-
-
             if (m_view_render_fullscreen) AddRenderMenuSubMenue();
 
 
@@ -558,8 +535,7 @@ int main(int argc, char** argv) {
                         ImGui::EndMainMenuBar();
             
         }
-
-                
+                        
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
         if (m_tools_font_window) ng::gui::ShowFontViewer(m_tools_font_window);
@@ -591,6 +567,7 @@ int main(int argc, char** argv) {
                     ConvertfromWad(m_wad_file, n);
                 }
 
+
                 auto brush = data.ExtractBrushes();
                 brush = ng::map::csg::MakeUnion(brush);
 
@@ -607,6 +584,7 @@ int main(int argc, char** argv) {
                     {
                         ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 1);
                         poly.texture = texture;
+                        poly.FinalizeTextureUVs();
                         polys.push_back(poly);
                     }
                 }
@@ -616,7 +594,6 @@ int main(int argc, char** argv) {
                 for (auto p : liquit_faces) {
                     auto name = data.m_id_text[p.textureIndex()];
                     ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
-
 
 
                     for (size_t i = 1; i < p.verts().size() - 1; ++i)
@@ -674,9 +651,9 @@ int main(int argc, char** argv) {
                                 box.GenerateUVsBoxMapped();
                                 box.SetVertexColor(l.color);
                                 m_mesh_obj.push_back(box);
-                                    
-                                
+                                                                                             
                             }
+
                             printf("[Lightmap] %zu Lichtquellen gefunden\n", lights.size());
 
                             ng::lightmap::LightmapOptions lmOpt;
@@ -686,33 +663,48 @@ int main(int argc, char** argv) {
                             lmOpt.startAtlasSize = std::max(1024, ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
                             lmOpt.maxAtlasSize = 8192;
                             lmOpt.kAmbientFloor = 20;
-                           
-
+                            lmOpt.onlyCoveredTexels = true;
+                            lmOpt.coverageMargin = 1.0;
+                                                        
                             
-
-                            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
+                            //auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
+                            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, m_bsp, lights, lmOpt);
+                          //  ng::bsp::DebugCompareBSPvsBruteforce(m_bsp, visible, 200, (NG_MATH_FLOAT)0.01);
+                            
+                                                                                                                
                             if (atlas)
                             {
-                                ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, visible, lights, lmOpt);
 
-                                ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__Pre_lightmap_atlas__", atlas->Buffer());
-
-
-
-                                // NEU: Radiosity (indirektes Licht) auf Basis der bereits direkt
-                                // beleuchteten opaken Polygone.
-                                ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
-                                radOpt.bounces = 300;
-                                radOpt.samplesPerPatch = 200;
-                                radOpt.maxRayDistance = 4096.0;
-                               
-                                if (m_build_radiosity)  ng::lightmap::BakeRadiosity(*atlas, visible, radOpt);
+                                // nach BakeRadiosity(...):
+                                atlas->Buffer().SaveAsBMP("lm_final.bmp");
+                                // zum Beurteilen dunkler Bereiche zusaetzlich eine aufgehellte Variante:
+                                atlas->Buffer().SaveAsBMP("lm_final_x4.bmp", 4.0f);
 
                                 
+                                
+								ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, m_bsp, lights, lmOpt);
+                                if (m_build_radiosity)
+                                {
+                                    ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
+                                    
+                                    radOpt.bounces = 4;
+                                    radOpt.samplesPerPatch = 32;
+                                    radOpt.blockSize = 2;
+                                    radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
+                                    radOpt.albedoMax = 0.85;
+                                    radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
+                                    radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
+                                    radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
+                                    radOpt.indirectGain = 20.0;
+
+                                    ng::lightmap::BakeRadiosity(*atlas, visible, radOpt);
+
+                                    // Ergebnis (vor ApplyRadiosityToAtlas)
+                                   
+                                }
+
                                 ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", atlas->Buffer());
                                 m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
-
-                                printf("[Lightmap] Atlas gebacken und gebunden.\n");
                             }
                             else
                             {
