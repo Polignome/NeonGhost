@@ -9,6 +9,7 @@
 #include <limits>
 #include <random>
 #include <cstdint>
+#include "MapCompiler.h"
 #include "RenderTargetView.h"
 
 static ng::renderer::buffers::PixelBufferRGBA m_bixelbuffer(800, 600);
@@ -55,15 +56,12 @@ static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 // Member der Anwendung
 static ng::renderer::rasterizer::LightmapCorrection m_lmCorr;
 
-struct BspScene {
 
-    ng::bsp::BSPTree<NG_MATH_FLOAT> m_bsp;
-    ng::bsp::PVS<NG_MATH_FLOAT> m_pvs;
-    ng::bsp::VisCellOptions<NG_MATH_FLOAT> m_vo;
-    ng::bsp::VisCells<NG_MATH_FLOAT> m_cells;
-};
 
-static BspScene m_bsp_scene;
+static BspScene<NG_MATH_FLOAT> m_bsp_scene;
+
+
+
 
 
 static ng::controller::PlayerController<NG_MATH_FLOAT> m_player(m_bsp_scene.m_bsp);
@@ -1321,6 +1319,17 @@ inline void ToggleBit(uint32_t& value, uint32_t bit)
 
 inline void SomeDebugStuff() {
     {
+		bool first_start = true;
+        static float gamma = 1;
+        static float brightness = 2;
+
+        if (first_start) {
+            first_start = false;
+            gamma = m_lmCorr.gamma;
+            brightness = m_lmCorr.brightness;
+
+        }
+
         int width = 400;
         float green = 1;
         ImVec2 start = ImGui::GetCursorScreenPos();
@@ -1419,12 +1428,10 @@ inline void SomeDebugStuff() {
                 else ImGui::TextColored(ImVec4(1, green, 1, 1), "Polygons rendered........................: %i", stat.polys_rendered);
             }
             if (ImGui::CollapsingHeader("Lighting")) {
-                static float gamma = 1;
-                static float brightness = 2;
 
                 ImGui::SliderFloat("Gamma", &gamma, 0, 2);
                 ImGui::SliderFloat("Brightness", &brightness, 0, 2);
-                if (ImGui::Button("Apply")) {
+                if (m_lmCorr.brightness != brightness || m_lmCorr.gamma != gamma) {
                     m_lmCorr.brightness = brightness;
                     m_lmCorr.gamma = gamma;
                     m_lmCorr.Rebuild();

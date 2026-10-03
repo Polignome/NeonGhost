@@ -1066,733 +1066,520 @@ namespace ng
             };
 
 
-
-            template<class T>
-            class SnowEffect
-                : public IPostFXEffect<T>
+            namespace detail
             {
-            public:
-
-                using Vector3 = ng::math::Matrix<3, 1, T>;
-
-                struct SnowFlake
+                inline int Ch(uint32_t c, int shift)
                 {
-                    T x = 0;
-                    T y = 0;
-                    T z = 0;
+                    return static_cast<int>((c >> shift) & 0xff);
+                }
 
-                    T speed = 0;
-                    T size = 1;
-                    T phase = 0;
-                };
-
-
-            public:
-
-                SnowEffect(
-                    size_t count = 1200,
-                    T speed = (T)8,
-                    T wind = (T)2,
-                    T size = (T)1.5)
-                    :
-                    m_count(count),
-                    m_speed(speed),
-                    m_wind(wind),
-                    m_size(size)
+                // Horizontaler Box-Blur mit gebrochenem Radius (ri + f)
+                inline void BoxBlurH(const uint32_t* src, uint32_t* dst,
+                    int w, int h, int ri, float f)
                 {
-                    m_flakes.resize(m_count);
+                    const float inv = 1.0f / (2.0f * ri + 1.0f + 2.0f * f);
 
-                    std::mt19937 rng(1337);
-
-                    std::uniform_real_distribution<T> rnd(
-                        (T)0,
-                        (T)1);
-
-                    for (auto& f : m_flakes)
+                    for (int y = 0; y < h; ++y)
                     {
-                        f.x =
-                            (rnd(rng) - (T)0.5) *
-                            m_fieldWidth;
+                        const uint32_t* row = src + static_cast<size_t>(y) * w;
+                        uint32_t* out = dst + static_cast<size_t>(y) * w;
 
-                        f.y =
-                            (rnd(rng) - (T)0.5) *
-                            m_fieldHeight;
-
-                        f.z =
-                            rnd(rng) *
-                            m_fieldDepth +
-                            (T)1;
-
-                        f.speed =
-                            m_speed *
-                            ((T)0.5 + rnd(rng));
-
-                        f.size =
-                            m_size *
-                            ((T)0.5 + rnd(rng));
-
-                        f.phase =
-                            rnd(rng) *
-                            (T)6.283185307179586;
-                    }
-                }
-
-
-                // ============================================================
-                // IPostFXEffect
-                // ============================================================
-
-                void Apply(
-                    GBuffer<T>& gbuffer,
-                    T time) override
-                {
-                    if (!gbuffer.color)
-                        return;
-
-                    if (gbuffer.width <= 0 ||
-                        gbuffer.height <= 0)
-                        return;
-
-                    Update(time);
-
-                    for (const auto& f : m_flakes)
-                    {
-                        RenderFlake(
-                            gbuffer,
-                            f,
-                            time);
-                    }
-                }
-
-
-                std::vector<BufferSlot>
-                    GetRequiredInputs() const override
-                {
-                    return
-                    {
-                        BufferSlot::Color
-                    };
-                }
-
-
-                const char*
-                    GetName() const override
-                {
-                    return "Snow";
-                }
-
-
-                // ============================================================
-                // Camera
-                // ============================================================
-
-                void SetCamera(
-                    const Vector3& forward,
-                    const Vector3& up)
-                {
-                    m_forward = forward;
-                    m_up = up;
-
-                    m_forward.normalize();
-                    m_up.normalize();
-
-                    //
-                    // Deine Konvention:
-                    //
-                    // Forward = -Z
-                    // Up      = +Y
-                    //
-                    // Forward x Up = Right
-                    //
-
-                    m_right =
-                        m_forward % m_up;
-
-                    m_right.normalize();
-                }
-
-
-                void SetCameraDelta(
-                    const Vector3& delta)
-                {
-                    m_cameraDelta = delta;
-                }
-
-
-                void SetCameraInfluence(T value)
-                {
-                    m_cameraInfluence =
-                        std::max(
-                            (T)0,
-                            value);
-                }
-
-
-                // ============================================================
-                // Projection
-                // ============================================================
-
-                void SetFOV(T fov)
-                {
-                    m_fov = fov;
-                }
-
-
-                void SetAspect(T aspect)
-                {
-                    m_aspect = aspect;
-                }
-
-
-                // ============================================================
-                // Snow parameters
-                // ============================================================
-
-                void SetSpeed(T value)
-                {
-                    m_speed = value;
-
-                    for (auto& f : m_flakes)
-                        f.speed =
-                        m_speed;
-                }
-
-
-                void SetWind(T value)
-                {
-                    m_wind = value;
-                }
-
-
-                void SetSize(T value)
-                {
-                    m_size = value;
-                }
-
-
-                void SetFieldSize(
-                    T width,
-                    T height,
-                    T depth)
-                {
-                    m_fieldWidth = width;
-                    m_fieldHeight = height;
-                    m_fieldDepth = depth;
-                }
-
-
-            private:
-
-                // ============================================================
-                // Update
-                // ============================================================
-
-                void Update(T time)
-                {
-                    T dt = (T)0;
-
-                    if (m_lastTime >= (T)0)
-                    {
-                        dt =
-                            time -
-                            m_lastTime;
-                    }
-
-                    m_lastTime = time;
-
-                    dt =
-                        std::clamp(
-                            dt,
-                            (T)0,
-                            (T)0.05);
-
-
-                    //
-                    // Kamerabewegung in Kameraachsen
-                    //
-
-                    const T cameraX =
-                        m_cameraDelta.dot(
-                            m_right);
-
-                    const T cameraY =
-                        m_cameraDelta.dot(
-                            m_up);
-
-                    const T cameraZ =
-                        m_cameraDelta.dot(
-                            m_forward);
-
-
-                    //
-                    // Weltgravitation
-                    //
-
-                    const T gravityX =
-                        m_worldDown.dot(
-                            m_right);
-
-                    const T gravityY =
-                        m_worldDown.dot(
-                            m_up);
-
-                    const T gravityZ =
-                        m_worldDown.dot(
-                            m_forward);
-
-
-                    for (auto& f : m_flakes)
-                    {
-                        const T fall =
-                            f.speed * dt;
-
-
-                        //
-                        // Schnee fällt nach Welt-Y
-                        //
-
-                        f.x +=
-                            gravityX * fall;
-
-                        f.y +=
-                            gravityY * fall;
-
-                        f.z +=
-                            gravityZ * fall;
-
-
-                        //
-                        // Wind
-                        //
-
-                        f.x +=
-                            m_wind * dt;
-
-
-                        //
-                        // leichte Bewegung
-                        //
-
-                        f.x +=
-                            std::sin(
-                                time * m_wobbleSpeed +
-                                f.phase) *
-                            m_wobbleAmount *
-                            dt;
-
-
-                        //
-                        // Kamerabewegung
-                        //
-                        // Forward = -Z
-                        //
-
-                        f.x -=
-                            cameraX *
-                            m_cameraInfluence;
-
-                        f.y -=
-                            cameraY *
-                            m_cameraInfluence;
-
-                        f.z +=
-                            cameraZ *
-                            m_cameraInfluence;
-
-
-                        //
-                        // Feld wrap
-                        //
-
-                        const T halfWidth =
-                            m_fieldWidth * (T)0.5;
-
-                        const T halfHeight =
-                            m_fieldHeight * (T)0.5;
-
-
-                        if (f.x < -halfWidth)
-                            f.x += m_fieldWidth;
-
-                        if (f.x > halfWidth)
-                            f.x -= m_fieldWidth;
-
-
-                        if (f.y < -halfHeight)
-                            f.y += m_fieldHeight;
-
-                        if (f.y > halfHeight)
-                            f.y -= m_fieldHeight;
-
-
-                        if (f.z < (T)1)
-                            f.z += m_fieldDepth;
-
-                        if (f.z > m_fieldDepth + (T)1)
-                            f.z -= m_fieldDepth;
-                    }
-
-
-                    //
-                    // Delta nur einmal anwenden
-                    //
-
-                    m_cameraDelta =
-                        Vector3(
-                            (T)0,
-                            (T)0,
-                            (T)0);
-                }
-
-
-            private:
-
-                // ============================================================
-                // Render flake
-                // ============================================================
-
-                void RenderFlake(
-                    GBuffer<T>& gbuffer,
-                    const SnowFlake& flake,
-                    T time)
-                {
-                    //
-                    // Kamera-relative Position
-                    //
-
-                    Vector3 position =
-                        m_right * flake.x
-                        + m_up * flake.y
-                        + m_forward * flake.z;
-
-
-                    //
-                    // Tiefe in Blickrichtung
-                    //
-
-                    const T depth =
-                        position.dot(
-                            m_forward);
-
-
-                    if (depth <= (T)0.1)
-                        return;
-
-
-                    //
-                    // FOV in Grad -> Radiant
-                    //
-
-                    constexpr T PI =
-                        static_cast<T>(
-                            3.14159265358979323846);
-
-                    const T fovRad =
-                        m_fov *
-                        (PI / (T)180);
-
-
-                    const T tanHalfFov =
-                        std::tan(
-                            fovRad * (T)0.5);
-
-
-                    if (tanHalfFov <= (T)0)
-                        return;
-
-
-                    //
-                    // Projektionsfaktor
-                    //
-
-                    const T focalY =
-                        ((T)gbuffer.height * (T)0.5) /
-                        tanHalfFov;
-
-                    const T focalX =
-                        focalY /
-                        m_aspect;
-
-
-                    const T cameraX =
-                        position.dot(
-                            m_right);
-
-                    const T cameraY =
-                        position.dot(
-                            m_up);
-
-
-                    const T sx =
-                        ((T)gbuffer.width * (T)0.5) +
-                        cameraX *
-                        focalX /
-                        depth;
-
-
-                    const T sy =
-                        ((T)gbuffer.height * (T)0.5) -
-                        cameraY *
-                        focalY /
-                        depth;
-
-
-                    //
-                    // Größe
-                    //
-
-                    T pixelSize =
-                        flake.size *
-                        focalY /
-                        depth;
-
-                    pixelSize =
-                        std::max(
-                            (T)1,
-                            pixelSize);
-
-
-                    const int ix =
-                        static_cast<int>(sx);
-
-                    const int iy =
-                        static_cast<int>(sy);
-
-                    const int radius =
-                        std::max(
-                            0,
-                            static_cast<int>(
-                                pixelSize * (T)0.5));
-
-
-                    if (ix + radius < 0 ||
-                        ix - radius >= gbuffer.width ||
-                        iy + radius < 0 ||
-                        iy - radius >= gbuffer.height)
-                    {
-                        return;
-                    }
-
-
-                    //
-                    // Schnee:
-                    //
-                    // 0xAABBGGRR
-                    //
-
-                    constexpr uint32_t snowColor =
-                        0xFFFFFFFF;
-
-
-                    const T radius2 =
-                        static_cast<T>(
-                            radius * radius);
-
-
-                    for (int y = -radius;
-                        y <= radius;
-                        ++y)
-                    {
-                        const int py =
-                            iy + y;
-
-                        if (py < 0 ||
-                            py >= gbuffer.height)
-                            continue;
-
-
-                        for (int x = -radius;
-                            x <= radius;
-                            ++x)
-                        {
-                            const int px =
-                                ix + x;
-
-                            if (px < 0 ||
-                                px >= gbuffer.width)
-                                continue;
-
-
-                            const T d2 =
-                                static_cast<T>(
-                                    x * x +
-                                    y * y);
-
-
-                            if (d2 > radius2)
-                                continue;
-
-
-                            T alpha = (T)1;
-
-                            if (radius > 0)
+                        auto at = [&](int x) -> uint32_t
                             {
-                                alpha =
-                                    (T)1 -
-                                    std::sqrt(d2) /
-                                    static_cast<T>(
-                                        radius);
+                                return row[std::clamp(x, 0, w - 1)];
+                            };
 
-                                alpha =
-                                    std::clamp(
-                                        alpha,
-                                        (T)0,
-                                        (T)1);
-                            }
+                        int sr = 0, sg = 0, sb = 0;
+                        for (int i = -ri; i <= ri; ++i)
+                        {
+                            const uint32_t c = at(i);
+                            sr += Ch(c, 16); sg += Ch(c, 8); sb += Ch(c, 0);
+                        }
 
+                        for (int x = 0; x < w; ++x)
+                        {
+                            const uint32_t cl = at(x - ri - 1);
+                            const uint32_t cr = at(x + ri + 1);
 
-                            uint32_t& dst =
-                                gbuffer.color[
-                                    py * gbuffer.width +
-                                        px];
+                            const float R = (sr + f * (Ch(cl, 16) + Ch(cr, 16))) * inv;
+                            const float G = (sg + f * (Ch(cl, 8) + Ch(cr, 8))) * inv;
+                            const float B = (sb + f * (Ch(cl, 0) + Ch(cr, 0))) * inv;
 
+                            out[x] = 0xff000000u
+                                | (static_cast<uint32_t>(R + 0.5f) << 16)
+                                | (static_cast<uint32_t>(G + 0.5f) << 8)
+                                | static_cast<uint32_t>(B + 0.5f);
 
-                            BlendPixel(
-                                dst,
-                                snowColor,
-                                alpha);
+                            // Fenster verschieben
+                            sr += Ch(cr, 16); sg += Ch(cr, 8); sb += Ch(cr, 0);
+                            const uint32_t co = at(x - ri);
+                            sr -= Ch(co, 16); sg -= Ch(co, 8); sb -= Ch(co, 0);
                         }
                     }
                 }
 
-
-                // ============================================================
-                // Blend
-                // ============================================================
-
-                static void BlendPixel(
-                    uint32_t& dst,
-                    uint32_t src,
-                    T alpha)
+                // Vertikaler Box-Blur, zeilenweise (cache-freundlich)
+                inline void BoxBlurV(const uint32_t* src, uint32_t* dst,
+                    int w, int h, int ri, float f,
+                    std::vector<int32_t>& sums)
                 {
-                    if (alpha <= (T)0)
-                        return;
+                    const float inv = 1.0f / (2.0f * ri + 1.0f + 2.0f * f);
+                    sums.assign(static_cast<size_t>(w) * 3, 0);
 
-                    if (alpha >= (T)1)
+                    auto rowPtr = [&](int y) -> const uint32_t*
+                        {
+                            return src + static_cast<size_t>(std::clamp(y, 0, h - 1)) * w;
+                        };
+
+                    for (int i = -ri; i <= ri; ++i)
                     {
-                        dst = src;
-                        return;
+                        const uint32_t* r = rowPtr(i);
+                        for (int x = 0; x < w; ++x)
+                        {
+                            sums[x * 3 + 0] += Ch(r[x], 16);
+                            sums[x * 3 + 1] += Ch(r[x], 8);
+                            sums[x * 3 + 2] += Ch(r[x], 0);
+                        }
                     }
 
+                    for (int y = 0; y < h; ++y)
+                    {
+                        const uint32_t* rl = rowPtr(y - ri - 1);
+                        const uint32_t* rr = rowPtr(y + ri + 1);
+                        const uint32_t* ro = rowPtr(y - ri);
+                        uint32_t* out = dst + static_cast<size_t>(y) * w;
 
-                    //
-                    // 0xAABBGGRR
-                    //
+                        for (int x = 0; x < w; ++x)
+                        {
+                            int32_t* s = &sums[x * 3];
 
-                    const int sr =
-                        (src >> 0) & 0xff;
+                            const float R = (s[0] + f * (Ch(rl[x], 16) + Ch(rr[x], 16))) * inv;
+                            const float G = (s[1] + f * (Ch(rl[x], 8) + Ch(rr[x], 8))) * inv;
+                            const float B = (s[2] + f * (Ch(rl[x], 0) + Ch(rr[x], 0))) * inv;
 
-                    const int sg =
-                        (src >> 8) & 0xff;
+                            out[x] = 0xff000000u
+                                | (static_cast<uint32_t>(R + 0.5f) << 16)
+                                | (static_cast<uint32_t>(G + 0.5f) << 8)
+                                | static_cast<uint32_t>(B + 0.5f);
 
-                    const int sb =
-                        (src >> 16) & 0xff;
+                            s[0] += Ch(rr[x], 16) - Ch(ro[x], 16);
+                            s[1] += Ch(rr[x], 8) - Ch(ro[x], 8);
+                            s[2] += Ch(rr[x], 0) - Ch(ro[x], 0);
+                        }
+                    }
+                }
 
-
-                    const int dr =
-                        (dst >> 0) & 0xff;
-
-                    const int dg =
-                        (dst >> 8) & 0xff;
-
-                    const int db =
-                        (dst >> 16) & 0xff;
-
-
-                    const int r =
-                        static_cast<int>(
-                            dr +
-                            (sr - dr) * alpha);
-
-                    const int g =
-                        static_cast<int>(
-                            dg +
-                            (sg - dg) * alpha);
-
-                    const int b =
-                        static_cast<int>(
-                            db +
-                            (sb - db) * alpha);
+                inline uint32_t BlendToColor(uint32_t dst, uint32_t src, int a /*0..255*/)
+                {
+                    const int ia = 255 - a;
+                    const uint32_t r = (Ch(dst, 16) * ia + Ch(src, 16) * a) / 255;
+                    const uint32_t g = (Ch(dst, 8) * ia + Ch(src, 8) * a) / 255;
+                    const uint32_t b = (Ch(dst, 0) * ia + Ch(src, 0) * a) / 255;
+                    return 0xff000000u | (r << 16) | (g << 8) | b;
+                }
+            } // namespace detail
 
 
-                    dst =
-                        ((uint32_t)255 << 24) |
-                        ((uint32_t)b << 16) |
-                        ((uint32_t)g << 8) |
-                        ((uint32_t)r);
+            // ================================================================
+            // BlurEffect
+            //
+            // strength = Radius in Pixeln (0 = aus, Bruchteile erlaubt,
+            //            daher flackerfrei animierbar).
+            // passes   = 1..4. Mehr Durchgaenge -> weicher (naehert Gauss an).
+            // ================================================================
+            template <class T>
+            class BlurEffect : public IPostFXEffect<T>
+            {
+            public:
+
+                explicit BlurEffect(T strength = static_cast<T>(2.0), int passes = 2)
+                    : m_strength(strength), m_passes(std::clamp(passes, 1, 4))
+                {
+                }
+
+                void SetStrength(T s) { m_strength = std::max(static_cast<T>(0), s); }
+                T    GetStrength() const { return m_strength; }
+
+                void SetPasses(int p) { m_passes = std::clamp(p, 1, 4); }
+                int  GetPasses() const { return m_passes; }
+
+                void Apply(GBuffer<T>& gb, T /*time*/) override
+                {
+                    if (!gb.HasColor() || gb.width <= 0 || gb.height <= 0)
+                        return;
+
+                    const float s = static_cast<float>(m_strength);
+                    if (s < 0.01f)
+                        return;
+
+                    const int w = gb.width;
+                    const int h = gb.height;
+
+                    const int ri = std::min(static_cast<int>(std::floor(s)),
+                        std::max(w, h));
+                    const float f = s - std::floor(s);
+
+                    const size_t n = gb.PixelCount();
+                    m_a.resize(n);
+                    m_b.resize(n);
+
+                    // Pass 0 liest direkt aus dem Color-Buffer
+                    detail::BoxBlurH(gb.color, m_b.data(), w, h, ri, f);
+                    detail::BoxBlurV(m_b.data(), m_a.data(), w, h, ri, f, m_sums);
+
+                    for (int p = 1; p < m_passes; ++p)
+                    {
+                        detail::BoxBlurH(m_a.data(), m_b.data(), w, h, ri, f);
+                        detail::BoxBlurV(m_b.data(), m_a.data(), w, h, ri, f, m_sums);
+                    }
+
+                    std::memcpy(gb.color, m_a.data(), n * sizeof(uint32_t));
+                }
+
+                const char* GetName() const override { return "Blur"; }
+
+            private:
+                T   m_strength;
+                int m_passes;
+
+                std::vector<uint32_t> m_a, m_b;
+                std::vector<int32_t>  m_sums;
+            };
+
+
+            // ================================================================
+            // SnowEffect
+            // ================================================================
+            template <class T>
+            struct SnowParams
+            {
+                int  count = 1500;                       // Anzahl Flocken
+                T    volumeRadius = static_cast<T>(40);  // halbe Breite/Tiefe der Box um die Kamera
+                T    volumeHeight = static_cast<T>(25);  // halbe Hoehe der Box um die Kamera
+
+                T    minSize = static_cast<T>(0.04);     // Flockengroesse (Welteinheiten)
+                T    maxSize = static_cast<T>(0.12);
+
+                T    fallSpeedMin = static_cast<T>(1.5); // Einheiten/Sek.
+                T    fallSpeedMax = static_cast<T>(3.5);
+
+                T    windX = static_cast<T>(0.8);
+                T    windZ = static_cast<T>(0.0);
+                T    sway = static_cast<T>(0.6);         // seitliches Taumeln
+
+                T    nearClip = static_cast<T>(0.2);
+                T    maxDistance = static_cast<T>(45);   // darueber voll ausgeblendet
+
+                T    brightness = static_cast<T>(0.95);  // max. Deckkraft
+                uint32_t color = 0x00ffffffu;            // RGB der Flocken
+
+                bool collide = true;                     // am Depth-Buffer liegenbleiben
+                T    stickTime = static_cast<T>(4.0);    // Sek. bis eine liegende Flocke schmilzt
+                T    depthBias = static_cast<T>(0.02);   // relative Toleranz beim Depth-Test
+            };
+
+            template <class T>
+            class SnowEffect : public IPostFXEffect<T>
+            {
+            public:
+
+                explicit SnowEffect(const SnowParams<T>& p = SnowParams<T>(),
+                    uint32_t seed = 1337u)
+                    : m_p(p), m_rng(seed)
+                {
+                }
+
+                void SetParams(const SnowParams<T>& p)
+                {
+                    const bool resize = (p.count != m_p.count);
+                    m_p = p;
+                    if (resize) m_flakes.clear();   // wird neu initialisiert
+                }
+                const SnowParams<T>& GetParams() const { return m_p; }
+
+                // Kamera-Orientierung (Bogenmass)
+                void SetCamera(T yaw, T pitch) { m_yaw = yaw; m_pitch = pitch; }
+
+                // Kamera-Position (optional, fuer Laufen/Fahren)
+                void SetCameraPosition(T x, T y, T z) { m_cx = x; m_cy = y; m_cz = z; }
+
+                // Vertikales Field-of-View (Bogenmass)
+                void SetFov(T fovY) { m_fovY = fovY; }
+
+                std::vector<BufferSlot> GetRequiredInputs() const override
+                {
+                    return { BufferSlot::Color, BufferSlot::Depth };
+                }
+
+                const char* GetName() const override { return "Snow"; }
+
+
+                void Apply(GBuffer<T>& gb, T time) override
+                {
+                    if (!gb.HasColor() || !gb.HasDepth())
+                        return;
+                    if (gb.width <= 0 || gb.height <= 0 || m_p.count <= 0)
+                        return;
+
+                    // --- dt ------------------------------------------------
+                    T dt = static_cast<T>(0);
+                    if (m_hasTime)
+                        dt = std::clamp(time - m_lastTime, static_cast<T>(0), static_cast<T>(0.1));
+                    m_lastTime = time;
+                    m_hasTime = true;
+
+                    // --- Kamera-Matrix (sin/cos, einmal pro Frame) ---------
+                    m_sy = std::sin(m_yaw);   m_cyaw = std::cos(m_yaw);
+                    m_sp = std::sin(m_pitch); m_cp = std::cos(m_pitch);
+                    m_focal = (static_cast<T>(gb.height) * static_cast<T>(0.5)) /
+                        std::tan(m_fovY * static_cast<T>(0.5));
+
+                    if (static_cast<int>(m_flakes.size()) != m_p.count)
+                        InitFlakes();
+
+                    Simulate(gb, time, dt);
+                    Render(gb);
                 }
 
 
             private:
 
-                std::vector<SnowFlake>
-                    m_flakes;
+                struct Flake
+                {
+                    T x, y, z;
+                    T size;
+                    T fall;
+                    T phase;
+                    T stuck;       // < 0: faellt, sonst Restzeit des Liegenbleibens
+                };
 
-                size_t m_count = 0;
+                // ---------------------------------------------------------
+                T Rand(T a, T b)
+                {
+                    std::uniform_real_distribution<float> d(0.0f, 1.0f);
+                    return a + (b - a) * static_cast<T>(d(m_rng));
+                }
 
+                void Respawn(Flake& f, bool anywhereInHeight)
+                {
+                    f.x = m_cx + Rand(-m_p.volumeRadius, m_p.volumeRadius);
+                    f.z = m_cz + Rand(-m_p.volumeRadius, m_p.volumeRadius);
+                    f.y = anywhereInHeight
+                        ? m_cy + Rand(-m_p.volumeHeight, m_p.volumeHeight)
+                        : m_cy + m_p.volumeHeight;
+                    f.size = Rand(m_p.minSize, m_p.maxSize);
+                    f.fall = Rand(m_p.fallSpeedMin, m_p.fallSpeedMax);
+                    f.phase = Rand(static_cast<T>(0), static_cast<T>(6.2831853));
+                    f.stuck = static_cast<T>(-1);
+                }
 
-                T m_speed = (T)8;
-                T m_wind = (T)2;
-                T m_size = (T)1.5;
+                void InitFlakes()
+                {
+                    m_flakes.resize(static_cast<size_t>(m_p.count));
+                    for (auto& f : m_flakes)
+                        Respawn(f, true);
+                }
 
+                // Welt -> Bildschirm. false = hinter der Kamera.
+                bool Project(T wx, T wy, T wz, const GBuffer<T>& gb,
+                    T& sx, T& sy, T& z) const
+                {
+                    const T dx = wx - m_cx;
+                    const T dy = wy - m_cy;
+                    const T dz = wz - m_cz;
 
-                T m_wobbleAmount = (T)0.5;
-                T m_wobbleSpeed = (T)1.5;
+                    // Yaw
+                    const T x1 = m_cyaw * dx - m_sy * dz;
+                    const T z1 = m_sy * dx + m_cyaw * dz;
+                    // Pitch
+                    const T y2 = m_cp * dy - m_sp * z1;
+                    const T z2 = m_sp * dy + m_cp * z1;
 
+                    if (z2 < m_p.nearClip)
+                        return false;
 
-                T m_fieldWidth = (T)100;
-                T m_fieldHeight = (T)60;
-                T m_fieldDepth = (T)100;
+                    const T k = m_focal / z2;
+                    sx = static_cast<T>(gb.width) * static_cast<T>(0.5) + x1 * k;
+                    sy = static_cast<T>(gb.height) * static_cast<T>(0.5) - y2 * k;
+                    z = z2;
+                    return true;
+                }
 
+                // true, wenn Punkt auf dem Schirm UND hinter Geometrie
+                bool IsOccluded(T sx, T sy, T z, const GBuffer<T>& gb) const
+                {
+                    const int px = static_cast<int>(sx);
+                    const int py = static_cast<int>(sy);
+                    if (sx < 0 || sy < 0 || px >= gb.width || py >= gb.height)
+                        return false;
 
-                Vector3 m_forward =
-                    Vector3(
-                        (T)0,
-                        (T)0,
-                        (T)-1);
+                    const T d = gb.depth[static_cast<size_t>(py) * gb.width + px];
+                    if (d <= static_cast<T>(1e-8))
+                        return false;   // nichts gezeichnet -> Himmel
 
-                Vector3 m_right =
-                    Vector3(
-                        (T)1,
-                        (T)0,
-                        (T)0);
+                    return d * z > (static_cast<T>(1) + m_p.depthBias);
+                }
 
-                Vector3 m_up =
-                    Vector3(
-                        (T)0,
-                        (T)1,
-                        (T)0);
+                // ---------------------------------------------------------
+                void Simulate(const GBuffer<T>& gb, T time, T dt)
+                {
+                    const T R = m_p.volumeRadius;
+                    const T H = m_p.volumeHeight;
+                    const T twoR = R * static_cast<T>(2);
 
+                    for (auto& f : m_flakes)
+                    {
+                        // ---- liegende Flocke: Timer ---------------------
+                        if (f.stuck >= static_cast<T>(0))
+                        {
+                            f.stuck -= dt;
+                            if (f.stuck <= static_cast<T>(0))
+                                Respawn(f, false);
+                            continue;
+                        }
 
-                Vector3 m_cameraDelta =
-                    Vector3(
-                        (T)0,
-                        (T)0,
-                        (T)0);
+                        const T px = f.x, py = f.y, pz = f.z;
 
+                        // ---- Bewegung ----------------------------------
+                        f.x += (m_p.windX + std::sin(time * static_cast<T>(0.8) + f.phase) * m_p.sway) * dt;
+                        f.z += (m_p.windZ + std::cos(time * static_cast<T>(0.7) + f.phase * static_cast<T>(1.3)) * m_p.sway) * dt;
+                        f.y -= f.fall * dt;
 
-                Vector3 m_worldDown =
-                    Vector3(
-                        (T)0,
-                        (T)-1,
-                        (T)0);
+                        // ---- Box um die Kamera (horizontal wrap) ---------
+                        f.x -= twoR * std::floor((f.x - m_cx + R) / twoR);
+                        f.z -= twoR * std::floor((f.z - m_cz + R) / twoR);
 
+                        // ---- unten raus / zu hoch -> oben neu ------------
+                        if (f.y < m_cy - H || f.y > m_cy + H)
+                        {
+                            Respawn(f, false);
+                            continue;
+                        }
 
-                T m_cameraInfluence =
-                    (T)0.15;
+                        // ---- Kollision mit Depth-Buffer ------------------
+                        if (m_p.collide && dt > static_cast<T>(0))
+                        {
+                            T sx, sy, z;
+                            if (Project(f.x, f.y, f.z, gb, sx, sy, z) &&
+                                IsOccluded(sx, sy, z, gb))
+                            {
+                                // Vorherige Position war sichtbar davor?
+                                T psx, psy, pz2;
+                                if (Project(px, py, pz, gb, psx, psy, pz2) &&
+                                    !IsOccluded(psx, psy, pz2, gb))
+                                {
+                                    f.x = px; f.y = py; f.z = pz;   // an Oberflaeche halten
+                                    f.stuck = m_p.stickTime;
+                                }
+                                // sonst: war schon verdeckt -> ignorieren
+                            }
+                        }
+                    }
+                }
 
+                // ---------------------------------------------------------
+                void Render(GBuffer<T>& gb) const
+                {
+                    const int W = gb.width;
+                    const int H = gb.height;
 
-                T m_fov =
-                    (T)90;
+                    for (const auto& f : m_flakes)
+                    {
+                        T sx, sy, z;
+                        if (!Project(f.x, f.y, f.z, gb, sx, sy, z))
+                            continue;
 
-                T m_aspect =
-                    (T)1;
+                        // Entfernungs-Fade
+                        T alpha = m_p.brightness *
+                            (static_cast<T>(1) - z / m_p.maxDistance);
+                        if (alpha <= static_cast<T>(0.01))
+                            continue;
 
+                        // Schmelz-Fade bei liegenden Flocken
+                        if (f.stuck >= static_cast<T>(0))
+                            alpha *= std::min(static_cast<T>(1), f.stuck * static_cast<T>(2));
 
-                T m_lastTime =
-                    (T)-1;
+                        const T r = f.size * m_focal / z;      // Radius in Pixeln
+
+                        if (r < static_cast<T>(0.75))
+                        {
+                            // Subpixel-Flocke: ein Pixel, Deckkraft ~ Groesse
+                            const int px = static_cast<int>(sx);
+                            const int py = static_cast<int>(sy);
+                            if (px < 0 || py < 0 || px >= W || py >= H)
+                                continue;
+
+                            const size_t idx = static_cast<size_t>(py) * W + px;
+                            if (!Visible(gb, idx, z))
+                                continue;
+
+                            const T a = alpha * std::max(r / static_cast<T>(0.75), static_cast<T>(0.35));
+                            gb.color[idx] = detail::BlendToColor(
+                                gb.color[idx], m_p.color,
+                                static_cast<int>(a * static_cast<T>(255)));
+                        }
+                        else
+                        {
+                            // Weiche Scheibe
+                            const int x0 = std::max(0, static_cast<int>(std::floor(sx - r)));
+                            const int x1 = std::min(W - 1, static_cast<int>(std::ceil(sx + r)));
+                            const int y0 = std::max(0, static_cast<int>(std::floor(sy - r)));
+                            const int y1 = std::min(H - 1, static_cast<int>(std::ceil(sy + r)));
+
+                            for (int y = y0; y <= y1; ++y)
+                            {
+                                for (int x = x0; x <= x1; ++x)
+                                {
+                                    const T ddx = (static_cast<T>(x) + static_cast<T>(0.5)) - sx;
+                                    const T ddy = (static_cast<T>(y) + static_cast<T>(0.5)) - sy;
+                                    const T dist = std::sqrt(ddx * ddx + ddy * ddy);
+                                    if (dist >= r) continue;
+
+                                    const size_t idx = static_cast<size_t>(y) * W + x;
+                                    if (!Visible(gb, idx, z)) continue;
+
+                                    const T t = static_cast<T>(1) - dist / r;
+                                    const int a = static_cast<int>(alpha * t * static_cast<T>(255));
+                                    if (a <= 0) continue;
+
+                                    gb.color[idx] = detail::BlendToColor(gb.color[idx], m_p.color, a);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                bool Visible(const GBuffer<T>& gb, size_t idx, T z) const
+                {
+                    const T d = gb.depth[idx];
+                    if (d <= static_cast<T>(1e-8))
+                        return true;   // Himmel
+                    return d * z <= (static_cast<T>(1) + m_p.depthBias);
+                }
+
+            private:
+
+                SnowParams<T> m_p;
+                std::mt19937  m_rng;
+
+                std::vector<Flake> m_flakes;
+
+                // Kamera
+                T m_yaw = static_cast<T>(0);
+                T m_pitch = static_cast<T>(0);
+                T m_cx = static_cast<T>(0);
+                T m_cy = static_cast<T>(0);
+                T m_cz = static_cast<T>(0);
+                T m_fovY = static_cast<T>(1.2217);   // ~70 Grad
+
+                // pro Frame gecacht
+                T m_sy = static_cast<T>(0), m_cyaw = static_cast<T>(1);
+                T m_sp = static_cast<T>(0), m_cp = static_cast<T>(1);
+                T m_focal = static_cast<T>(1);
+
+                T    m_lastTime = static_cast<T>(0);
+                bool m_hasTime = false;
             };
-
 
 
 

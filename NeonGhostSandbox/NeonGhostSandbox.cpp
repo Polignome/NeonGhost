@@ -24,7 +24,7 @@
 #include <Map.h>
 #include <Lightmap.h>
 #include <Radiosity.h>
-
+#include "MapCompiler.h"
 
 #pragma comment(lib,"SDL2.lib")
 #pragma comment(lib,"SDL2main.lib")
@@ -49,8 +49,21 @@ static ng::tools::FPSCounter m_fps_counter;
 static ng::renderer::gfx::Texture m_bsp_lightmap;
 
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
-//static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
-static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
+
+static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
+
+static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
+
+
+// static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
+
+// 
+// 
+// 
+// static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
+//static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
+
+static MapCompiler<NG_MATH_FLOAT> m_map_compiler;
 
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
 std::string VFSFilePicker(bool& show, std::string wildcard) {
@@ -107,6 +120,20 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 
 
 
+
+void LoadMapReady(bool error, BspScene<NG_MATH_FLOAT>&& scene) {
+    if (error) {
+        std::cout << "Error loading map" << std::endl;
+        return;
+    }
+    m_bsp_scene = std::move(scene);
+
+    ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
+    m_bsp_scene.m_lightmap.Resize(0, 0);
+    m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
+
+}
+
 inline void Render() {
     static double totalTime = 0.0;
     static ng::math::Matrix<3, 1, NG_MATH_FLOAT> m_cam_old_pos;
@@ -115,8 +142,7 @@ inline void Render() {
     double deltaTime = ImGui::GetIO().DeltaTime;
     totalTime += deltaTime;                      // <-- NEU: aufaddieren statt Delta direkt nutzen
 
-    static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
-     
+//    blur->SetStrength(6.0f);   // z.B. fuer Pause-Menue oder Unterwasser
     
     // erwartet: ≈ (0,0,0,1)
 
@@ -128,22 +154,7 @@ inline void Render() {
         mgr.BindDepth(m_rasterizer_3d.GetDepthBuffer().GetRawBuffer());
         m_cam_old_pos =  m_camera.position();
     }
-	
-
-
-    {
-        m_cam_pos = m_camera.position();
-
-        const auto delta =
-            m_cam_pos - m_cam_old_pos;
-
-        snow->SetCameraDelta(delta);
-        snow->SetCamera(m_camera.forward(), m_camera.up());
-        snow->SetFOV(
-            ng::math::radiansToDegrees(m_camera.fov()));
-        snow->SetAspect(
-            m_camera.aspect());
-    }
+	             
     
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
@@ -169,7 +180,12 @@ inline void Render() {
     
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
-    m_render_pipeline_3d.RenderWorld(m_cells, m_pvs, m_bsp_lightmap);
+
+
+
+
+
+    uint32_t medium=m_render_pipeline_3d.RenderWorld(m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap);
     
     m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
 
@@ -185,7 +201,8 @@ inline void Render() {
     
    
 
-    if (m_use_after_fx)mgr.Apply(totalTime);
+//    if (m_use_after_fx)mgr.Apply(totalTime);
+    if (medium & ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID) mgr.Apply(totalTime);
 
   
     float inp = (float)m_render_pipeline_3d.GetStatistics().polys_in;
@@ -324,34 +341,7 @@ void InitStuff() {
 }
 
 
-bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::string& name) 
-{
 
-    printf("[WAD] Load Texture %s", name.c_str());
-    if (ng::resource::TextureResourceManager::IsResourceInManager(name)) return true;
-
-    try {
-        ng::map::texture::Wad3File::Texture texture = wad.GetTexture(name);
-
-        // texture.pixels: width*height Palettenindizes (1 Byte/Pixel)
-        // texture.palette: 256 * 3 Bytes (RGB), siehe WAD3-Format
-        std::vector<uint8_t> rgba(texture.width * texture.height * 4);
-
-
-
-        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(
-            name, (unsigned char*)texture.pixels.data(), texture.width, texture.height);
-
-        printf("...OK\n");
-    }
-    catch (const std::runtime_error& error) {
-        std::string help = error.what();
-        printf("...ERROR\n");
-        ng::resource::TextureResourceManager::LoadRawTextureFromMemory(name, nullptr, 0, 0);
-        return false;
-    }
-    return true;
-}
 
 int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
@@ -359,6 +349,8 @@ int main(int argc, char** argv) {
     static bool m_load_hlm = false;
     static bool m_build_lightmaps = false;
     static bool m_build_radiosity = false;
+    
+    
     if (InitImGui()) return 1;
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGuiStyle& style = ImGui::GetStyle();
@@ -428,7 +420,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-
+        bool is_loading = m_map_compiler.running();
         
         {
             float x = ImGui::GetIO().DisplaySize.x + 20;
@@ -465,11 +457,10 @@ int main(int argc, char** argv) {
             }
         }
 
-
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
-                if (ImGui::MenuItem("Load HalfLifeMap")) m_load_hlm = true;
+                if (ImGui::MenuItem("Load HalfLifeMap",0,false,!is_loading)) m_load_hlm = true;
                 if (ImGui::MenuItem("Quit")) m_exit_program = true;
                 ImGui::EndMenu();
             }
@@ -551,190 +542,60 @@ int main(int argc, char** argv) {
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
 
-        if (m_load_hlm) {
+        if (m_load_hlm & !is_loading) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
-                ng::map::HalfLife hl_map;
-                hl_map.load(filename);
-                ng::map::Data<NG_MATH_FLOAT> data;
-                data = hl_map;
+			
 
-                m_mesh_obj.clear();
-                ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();;
+                ng::lightmap::LightmapOptions lmOpt;
+                lmOpt.buildDirectLight = m_build_lightmaps;
+                lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
+                lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
+                lmOpt.maxAtlasSize = 8192;
+                lmOpt.kAmbientFloor = 20;
+                lmOpt.onlyCoveredTexels = true;
+                lmOpt.coverageMargin = 1.0;
 
-
-                for (auto n : data.m_texture_names) {
-                    ConvertfromWad(m_wad_file, n);
-                }
-
-
-                auto brush = data.ExtractBrushes();
-                brush = ng::map::csg::MakeUnion(brush);
-
-                std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> polys;
-                std::vector<ng::bsp::BSPPolygon<NG_MATH_FLOAT>> extra_polys;
-
-
-
-                auto soild_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush);
-                for (auto p : soild_faces) {
-                    auto name = data.m_id_text[p.textureIndex()];
-                    ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
-                    for (size_t i = 1; i < p.verts().size() - 1; ++i)
-                    {
-                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 1);
-                        poly.texture = texture;
-                        poly.FinalizeTextureUVs();
-                        polys.push_back(poly);
-                    }
-                }
-
-
-                auto liquit_faces = ng::map::extract_prims<NG_MATH_FLOAT>(brush, ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID);
-                for (auto p : liquit_faces) {
-                    auto name = data.m_id_text[p.textureIndex()];
-                    ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
-
-
-                    for (size_t i = 1; i < p.verts().size() - 1; ++i)
-                    {
-                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 0);
-                        poly.texture = texture;
-                        extra_polys.push_back(poly);
-
-                        ng::bsp::BSPPolygon<NG_MATH_FLOAT> poly2 = ng::bsp::BSPPolygon<NG_MATH_FLOAT>::FromTriangle(p.verts()[i + 1], p.verts()[i], p.verts()[0], 0);
-                        poly2.texture = texture;
-                        extra_polys.push_back(poly2);
-                    }
-                }
-
+                ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
+                radOpt.buildDirectRadiosity = m_build_radiosity;
+                radOpt.bounces = 4;
+                radOpt.samplesPerPatch = 32;
+                radOpt.blockSize = 2;
+                radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
+                radOpt.albedoMax = 0.85;
+                radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
+                radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
+                radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
+                radOpt.indirectGain = 20.0;
                 
-                auto aabb = ng::bsp::ComputeSceneBounds(polys);
-                auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (NG_MATH_FLOAT)100);
-
-
-                for (auto p : sky)polys.push_back(p);
-
-                m_bsp.Build(polys);
-                m_bsp.InsertExtraPolygons(extra_polys);
-
-                m_num_bsp_leafs = m_bsp.GetLeaves().size();
-                m_bsp.BuildPortals();
-
-                auto reached = m_bsp.FloodFromFlag();            // Seeds = HAS_ILLEGAL_GEOMETRY, dann ueber alle Portale
-                m_bsp.RemoveReachedPolygons(reached);     // Polygone in allen erreichten Leaves loeschen
-
-                auto visible = m_bsp.CollectRemainingPolygons(); // Schritt 9
-                auto visibleextra = m_bsp.CollectRemainingExtraPolygons(); // Schritt 9
-                //for (auto o : visibleextra) visible.push_back(o);
-
-
-                // ------------------------------------------------------------
-                // NEU: Lightmap-Baking
-                //
-                // Muss HIER passieren - NACH allen BSP-Splits (m_bsp.Build,
-                // InsertExtraPolygons), aber VOR VisCells::Build. "visible" und
-                // "visibleextra" sind die finalen, nicht mehr weiter gesplitteten
-                // Polygonlisten; VisCells kopiert sie nur noch (kein weiteres
-                // Splitten), die hier gebackenen fxtexture()-UVs bleiben also
-                // bis zum Rendering erhalten.
-                // ------------------------------------------------------------
-                                
-
-
-                        if (m_build_lightmaps) {
-                            auto lights = ng::map::ToLightSources<NG_MATH_FLOAT>(data.GetLights());
-                            for (auto l : data.GetLights()) {
-                                auto box = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateBox(10, 10, 10);
-                                box.SetPosition(l.origin);
-                                box.ComputeSmoothNormals();
-                                box.GenerateUVsBoxMapped();
-                                box.SetVertexColor(l.color);
-                                m_mesh_obj.push_back(box);
-                                                                                             
-                            }
-
-                            printf("[Lightmap] %zu Lichtquellen gefunden\n", lights.size());
-
-                            ng::lightmap::LightmapOptions lmOpt;
-                            
-                            lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
-                            lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
-                            lmOpt.startAtlasSize = std::max(1024, ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
-                            lmOpt.maxAtlasSize = 8192;
-                            lmOpt.kAmbientFloor = 20;
-                            lmOpt.onlyCoveredTexels = true;
-                            lmOpt.coverageMargin = 1.0;
-                                                        
-                            
-                            //auto atlas = ng::lightmap::BuildLightmapAtlas(visible, lights, lmOpt);
-                            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, m_bsp, lights, lmOpt);
-                          //  ng::bsp::DebugCompareBSPvsBruteforce(m_bsp, visible, 200, (NG_MATH_FLOAT)0.01);
-                            
-                                                                                                                
-                            if (atlas)
-                            {
-
-                                // nach BakeRadiosity(...):
-                                atlas->Buffer().SaveAsBMP("lm_final.bmp");
-                                // zum Beurteilen dunkler Bereiche zusaetzlich eine aufgehellte Variante:
-                                atlas->Buffer().SaveAsBMP("lm_final_x4.bmp", 4.0f);
-
-                                
-                                
-								ng::lightmap::BakeExtraPolygonLightmaps(*atlas, visibleextra, m_bsp, lights, lmOpt);
-                                if (m_build_radiosity)
-                                {
-                                    ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
-                                    
-                                    radOpt.bounces = 4;
-                                    radOpt.samplesPerPatch = 32;
-                                    radOpt.blockSize = 2;
-                                    radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
-                                    radOpt.albedoMax = 0.85;
-                                    radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
-                                    radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
-                                    radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
-                                    radOpt.indirectGain = 20.0;
-
-                                    ng::lightmap::BakeRadiosity(*atlas, visible, radOpt);
-
-                                    // Ergebnis (vor ApplyRadiosityToAtlas)
-                                   
-                                }
-
-                                ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", atlas->Buffer());
-                                m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
-                            }
-                            else
-                            {
-                                printf("[Lightmap] Baking fehlgeschlagen - kein Atlas gesetzt.\n");
-                            }
-                        }
-                
-                m_vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
-
-                m_cells.Build(visible, m_vo);
-                m_cells.InsertExtraPolygons(visibleextra);
-
-                const auto& cellPolys = m_cells.Polygons();
-                for (size_t i = 0; i < std::min<size_t>(3, cellPolys.size()); ++i)
-                    printf("[Lightmap] in m_cells.Polygons(): poly=%zu v0.fxtexture=(%.4f,%.4f)\n",
-                        i, (double)cellPolys[i].verts[0].fxtexture().x(), (double)cellPolys[i].verts[0].fxtexture().y());
-
                 ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
                 po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
                 po.verbose = true;
                 po.skipVoidLeaves = true;
                 po.requirePolygonsInComponent = true;
-                po.minPortalArea = 0.1;
-                m_pvs.Build(m_cells.Tree(), po);            // PVS auf den groben Zellen
+                po.minPortalArea = 64;
+               
 
-                // Rendering
+                ng::bsp::VisCellOptions<NG_MATH_FLOAT> vo;
+                vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
+                //m_map_compiler.setCompleteCallback(LoadMapReady);
+                //m_map_compiler.start(filename,po,vo, lmOpt,radOpt );
+
+                Compile(filename, po, vo, lmOpt, radOpt, m_bsp_scene);
+
+                ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
+                m_bsp_scene.m_lightmap.Resize(0, 0);
+                m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
             }
+            
         }
                 
+        if (is_loading) {
+            ImGui::BeginTooltip();
+			ImGui::Text("Compiling Map...");
+            ImGui::EndTooltip();
+          }
 
                 
         ImGui::Render();
@@ -742,11 +603,9 @@ int main(int argc, char** argv) {
         SwapScreen(clear_color_with_alpha);
     }
 
-     m_bsp= ng::bsp::BSPTree<NG_MATH_FLOAT>();
-     m_pvs= ng::bsp::PVS<NG_MATH_FLOAT>();
-     m_vo= ng::bsp::VisCellOptions<NG_MATH_FLOAT>();
-     m_cells = ng::bsp::VisCells<NG_MATH_FLOAT>();
-
+    
+	m_bsp_scene = BspScene<NG_MATH_FLOAT>();  // Reset BSP scene to free memory    
+	m_bsp_lightmap = ng::renderer::gfx::Texture();  // Reset lightmap texture to free memory
     ng::resource::Manager::Flush();
 
 

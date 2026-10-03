@@ -234,6 +234,7 @@
     <ClInclude Include="Viscells.h" />
     <ClInclude Include="Visualize.h" />
     <ClInclude Include="Wad3File.h" />
+    <ClInclude Include="WarpPortal.h" />
     <ClInclude Include="Waveformobj.h" />
     <ClInclude Include="WorldSpawn.h" />
     <ClInclude Include="ZBuffer.h" />

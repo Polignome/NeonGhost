@@ -53,6 +53,7 @@ namespace ng::lightmap
 
     struct LightmapOptions
     {
+		bool   buildDirectLight = true;   // nur im commpiler thread wichtig
         int    startAtlasSize = 512;
         int    maxAtlasSize = 4096;
         double texelDensity = 16.0;   // Weltunits pro Lightmap-Texel
@@ -62,6 +63,7 @@ namespace ng::lightmap
         int    kAmbientFloor = 0;      // Sockel-Helligkeit (0..255) ohne jedes Licht
         bool   onlyCoveredTexels = false;  // true = nur Polygonflaeche (+ Rand) fuellen
         double coverageMargin = 1.0;    // Rand in Texeln fuer die bilineare Filterung
+
     };
 
     // ------------------------------------------------------------
@@ -620,6 +622,184 @@ namespace ng::lightmap
     // ================================================================
 
    
+ 
+        // ------------------------------------------------------------
+        // BlurLightmap
+        //
+        // Blurt GENAU EINE Lightmap eines Polygons.
+        //
+        // Wichtig:
+        //   Es wird ausschließlich innerhalb des Lightmap-Rechtecks
+        //   des Polygons gelesen und geschrieben. Dadurch kann eine
+        //   Lightmap niemals in eine benachbarte Lightmap im Atlas
+        //   hineinbluten.
+        //
+        // 3x3 Gauß-Filter:
+        //
+        //   1 2 1
+        //   2 4 2   / 16
+        //   1 2 1
+        //
+        // Durch zwei getrennte Durchläufe (horizontal/vertikal)
+        // wesentlich günstiger als ein kompletter 2D-Filter.
+        // ------------------------------------------------------------
+        inline void BlurLightmap(
+            LightMapAtlas& atlas,
+            int posX,
+            int posY,
+            int width,
+            int height)
+    {
+        if (width <= 1 || height <= 1)
+            return;
 
+        auto& buf = atlas.Buffer();
+
+        const size_t count = static_cast<size_t>(width) *
+            static_cast<size_t>(height);
+
+        // Zwischenpuffer.
+        std::vector<uint32_t> temp(count);
+
+        auto index = [width](int x, int y) -> size_t
+            {
+                return static_cast<size_t>(y) *
+                    static_cast<size_t>(width) +
+                    static_cast<size_t>(x);
+            };
+
+        // --------------------------------------------------------
+        // Horizontaler Durchlauf
+        // Gewichtung: 1 2 1 / 4
+        // --------------------------------------------------------
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                const int x0 = std::max(0, x - 1);
+                const int x1 = x;
+                const int x2 = std::min(width - 1, x + 1);
+
+                const uint32_t c0 =
+                    buf.GetPixel(posX + x0, posY + y);
+
+                const uint32_t c1 =
+                    buf.GetPixel(posX + x1, posY + y);
+
+                const uint32_t c2 =
+                    buf.GetPixel(posX + x2, posY + y);
+
+                const int r =
+                    (int)RGBToRed(c0) +
+                    2 * (int)RGBToRed(c1) +
+                    (int)RGBToRed(c2);
+
+                const int g =
+                    (int)RGBToGreen(c0) +
+                    2 * (int)RGBToGreen(c1) +
+                    (int)RGBToGreen(c2);
+
+                const int b =
+                    (int)RGBToBlue(c0) +
+                    2 * (int)RGBToBlue(c1) +
+                    (int)RGBToBlue(c2);
+
+                temp[index(x, y)] =
+                    RGB(
+                        (uint32_t)(r / 4),
+                        (uint32_t)(g / 4),
+                        (uint32_t)(b / 4)
+                    );
+            }
+        }
+
+        // --------------------------------------------------------
+        // Vertikaler Durchlauf
+        // Gewichtung: 1 2 1 / 4
+        // --------------------------------------------------------
+
+        for (int y = 0; y < height; ++y)
+        {
+            const int y0 = std::max(0, y - 1);
+            const int y1 = y;
+            const int y2 = std::min(height - 1, y + 1);
+
+            for (int x = 0; x < width; ++x)
+            {
+                const uint32_t c0 = temp[index(x, y0)];
+                const uint32_t c1 = temp[index(x, y1)];
+                const uint32_t c2 = temp[index(x, y2)];
+
+                const int r =
+                    (int)RGBToRed(c0) +
+                    2 * (int)RGBToRed(c1) +
+                    (int)RGBToRed(c2);
+
+                const int g =
+                    (int)RGBToGreen(c0) +
+                    2 * (int)RGBToGreen(c1) +
+                    (int)RGBToGreen(c2);
+
+                const int b =
+                    (int)RGBToBlue(c0) +
+                    2 * (int)RGBToBlue(c1) +
+                    (int)RGBToBlue(c2);
+
+                buf.PutPixel(
+                    posX + x,
+                    posY + y,
+                    RGB(
+                        (uint32_t)(r / 4),
+                        (uint32_t)(g / 4),
+                        (uint32_t)(b / 4)
+                    )
+                );
+            }
+        }
+    }
+
+
+    // ------------------------------------------------------------
+    // BlurAllLightmaps
+    //
+    // Blurt jede einzelne Lightmap aller Polygone.
+    //
+    // Jede Lightmap wird separat behandelt. Die Positionen der
+    // Polygone im Atlas spielen dabei keine Rolle.
+    //
+    // Optional kann passes > 1 verwendet werden, um stärker zu
+    // glätten.
+    // ------------------------------------------------------------
+    template<class T>
+    void BlurAllLightmaps(
+        LightMapAtlas& atlas,
+        const std::vector<ng::bsp::BSPPolygon<T>>& polygons,
+        int passes = 1)
+    {
+        if (passes <= 0)
+            return;
+
+        for (const auto& poly : polygons)
+        {
+            if (poly.verts.size() < 3)
+                continue;
+
+            if (poly.lmWidth <= 1 || poly.lmHeight <= 1)
+                continue;
+
+            for (int i = 0; i < passes; ++i)
+            {
+                BlurLightmap(
+                    atlas,
+                    poly.lmPosX,
+                    poly.lmPosY,
+                    poly.lmWidth,
+                    poly.lmHeight
+                );
+            }
+        }
+    }
+    
 
 }

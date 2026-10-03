@@ -168,6 +168,7 @@
     <ClInclude Include="imstb_textedit.h" />
     <ClInclude Include="imstb_truetype.h" />
     <ClInclude Include="InitImGui.h" />
+    <ClInclude Include="MapCompiler.h" />
     <ClInclude Include="myfont.h" />
     <ClInclude Include="NGDemos.h" />
     <ClInclude Include="RenderTargetView.h" />

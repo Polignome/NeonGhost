@@ -38,6 +38,7 @@ namespace ng::lightmap {
     template<class T>
     struct RadiosityOptions
     {
+		bool   buildDirectRadiosity = true;   // nur im commpiler thread wichtig
         int    bounces = 4;
         int    samplesPerPatch = 32;
         double maxRayDistance = 4096.0;

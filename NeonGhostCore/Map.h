@@ -4,6 +4,7 @@
 #include "WorldSpawn.h"
 #include "Wad3File.h"
 #include "Lightmap.h"
+#include "HalfLife.h"
 #define DDG_MAP_ID "DarkGhostMap"
 
 

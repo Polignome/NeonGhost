@@ -6,9 +6,11 @@
 #include <queue>
 #include <string>
 #include "CRC.h"
+
 #ifdef _NG_USE_RES_THREADS
 #include <thread>
 #include <mutex>
+
 #endif
 #include "tinyxml2.h"
 

@@ -1368,9 +1368,12 @@ namespace ng
 
                     if (n->isLeaf() || !n->m_front_node || !n->m_back_node)
                         continue;
-
+                    const size_t before = tree->m_portals.size();   // vor dem Aufruf merken
                     n->EmitPortalsForNode(tree, ancestry);
 
+                    const size_t made = tree->m_portals.size() - before;
+                    if (made > 10000)
+                        printf("[Portale] Knoten tiefe=%zu erzeugt %zu Portale\n", it.depth, made);
                     if (tree->m_verbose && (++processed % 1000) == 0)
                     {
                         const double sec = std::chrono::duration<double>(

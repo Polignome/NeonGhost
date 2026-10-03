@@ -390,6 +390,9 @@
     <ClInclude Include="Radiosity.h">
       <Filter>Headerdateien\Light</Filter>
     </ClInclude>
+    <ClInclude Include="WarpPortal.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

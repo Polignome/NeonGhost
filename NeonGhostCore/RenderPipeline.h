@@ -247,21 +247,74 @@ namespace ng::renderer::rasterizer {
         }
         
 
+
+        
+        template <class T>
+        inline void DebugPvsMisses(const math::Matrix<3, 1, T>& camPos,
+            const math::Matrix<3, 1, T>& camDir,
+            const ng::bsp::VisCells<T>& cells,
+            const ng::bsp::PVS<T>& pvs,
+            std::type_identity_t<T> cosHalfFov = T(0.5))
+        {
+            const auto& tree = cells.Tree();
+            const int camLeaf = tree.FindLeafId(camPos);
+            int missed = 0;
+            
+            printf("[PVS-MISS] cam=(%.0f,%.0f,%.0f) dir=(%.2f,%.2f,%.2f) leaf=%d\n",
+                (double)camPos(0), (double)camPos(1), (double)camPos(2),
+                (double)camDir(0), (double)camDir(1), (double)camDir(2), camLeaf);
+
+            for (const auto& leaf : tree.GetLeaves())
+            {
+                if (!leaf) continue;
+                if (pvs.CanSee(camLeaf, leaf->GetID())) continue;   // nur Leaves, die das PVS ausschliesst
+
+                for (const auto& poly : leaf->GetPolygons())
+                {
+                    if (poly.verts.empty()) continue;
+
+                    // Mittelpunkt des Polygons
+                    math::Matrix<3, 1, T> c(0, 0, 0);
+                    for (const auto& v : poly.verts) c = c + v.world();
+                    c = c * (T(1) / T(poly.verts.size()));
+
+                    math::Matrix<3, 1, T> d = c - camPos;
+                    const T dist = d.length();
+                    if (dist < T(1)) continue;
+                    d = d * (T(1) / dist);
+
+                    if ((d ^ camDir) < cosHalfFov) continue;          // NEU: nur Polygone im Blickfeld
+                    if ((d ^ poly.plane.normal()) >= T(0)) continue;  // Rueckseite
+
+                    if (!ng::bsp::BSPRayOccluded(tree, camPos, d, dist - T(0.5),
+                        T(1e-3), &poly))
+                    {
+                        printf("[PVS-MISS] Leaf %d poly sichtbar, aber nicht im PVS (cam=%d) mitte=(%.0f,%.0f,%.0f) dist=%.0f\n",
+                            leaf->GetID(), camLeaf,
+                            (double)c(0), (double)c(1), (double)c(2), (double)dist);
+                        ++missed;
+                        break;
+                    }
+                }
+            }
+            printf("[PVS-MISS] %d Leaves zu Unrecht ausgeschlossen\n", missed);
+        }
+
         template <class MaterialBinder>
-        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+        inline uint32_t RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
             ng::renderer::gfx::Texture lightmapAtlas, // NEU: gilt nur fuer diesen Aufruf
             MaterialBinder&& bindMaterial)
         {
             UpdateCameraPos();
-
+            
+            
             const auto& polys = cells.Polygons();
             const auto& extrapolys = cells.ExtraPolygons();
             std::vector<int32_t> m_post_render_poyls;
-
             const size_t cellCount = cells.CellCount();
 
             if (cellCount == 0 || polys.empty())
-                return;
+                return 0;
 
             const bool pvsMatches = pvs.IsBuilt() && pvs.LeafCount() == cellCount;
 
@@ -279,9 +332,10 @@ namespace ng::renderer::rasterizer {
             {
                 m_worldWarned = false;
             }
+            uint32_t medium = cells.Tree().MediumAtPoint(m_camera_pos);
 
             const int32_t cell = pvsMatches ? cells.FindCell(m_camera_pos) : -1;
-
+            
             const bool dataChanged =
                 m_worldCellsPtr != &cells ||
                 m_worldPvsPtr != &pvs ||
@@ -528,7 +582,7 @@ namespace ng::renderer::rasterizer {
                     state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
                     state.flags |= ng::renderer::rasterizer::RASTER_WOBBLE;
                     state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
-                    state.materialAlpha = 0.5;
+                    state.materialAlpha = 0.8;
                     m_rasterizer.PushState();
                     m_rasterizer.SetState(state);
                     m_rasterizer.DrawPolygon(verts2d);
@@ -557,13 +611,14 @@ namespace ng::renderer::rasterizer {
                 state.lightmapTex = nullptr;
                 m_rasterizer.SetState(state);
             }
+			return medium;
         }
 
         // Ohne Material-Callback
-        inline void RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+        inline uint32_t RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
             ng::renderer::gfx::Texture lightmapAtlas)
         {
-            RenderWorld(cells, pvs, lightmapAtlas, [](int) {});
+            return RenderWorld(cells, pvs, lightmapAtlas, [](int) {});
         }
 
         // Muss aufgerufen werden, wenn VisCells/PVS neu gebaut wurden, ohne dass
