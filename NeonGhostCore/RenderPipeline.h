@@ -300,22 +300,47 @@ namespace ng::renderer::rasterizer {
             printf("[PVS-MISS] %d Leaves zu Unrecht ausgeschlossen\n", missed);
         }
 
+
+
+        // ----------------------------------------------------------------------
+// Ersetzt deine RenderWorld(...) in der Renderer-Klasse.
+//
+// Neu gegenueber vorher:
+//   * Parameter "warps"
+//   * Schritt 2-4 sind in die rekursive Lambda "drawView" gewandert
+//   * Portal-Polygone werden nicht gezeichnet, sondern gesammelt; danach pro Portal:
+//       Tiefe im sichtbaren Portalbereich zuruecksetzen + Gegenseite rendern
+//
+// Zwei Dinge, die DU liefern musst (mit "HOOK" markiert):
+//   HOOK 1: CameraFrustumPlanes()  - Ebenen des Kamera-Frustums (Normalen nach innen, Weltraum)
+//   HOOK 2: RASTER_DEPTH_CLEAR     - neues DrawState-Flag im Rasterizer:
+//           Pixel, die den Tiefentest bestehen, bekommen Tiefe = "fern" und
+//           KEINE Farbe geschrieben.
+// ----------------------------------------------------------------------
+
         template <class MaterialBinder>
         inline uint32_t RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
-            ng::renderer::gfx::Texture lightmapAtlas, // NEU: gilt nur fuer diesen Aufruf
+            ng::renderer::gfx::Texture lightmapAtlas,
+            const std::vector<ng::bsp::WarpPortal<T>>& warps,
             MaterialBinder&& bindMaterial)
         {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            using Plane = ng::math::RayPlaneLine<3, T>;
+            using Vertex = ng::geometry::Vertex<T>;
+            using ScreenVerts = std::vector<ng::renderer::rasterizer::ScreenVertex<T>>;
+            constexpr int kMaxPortalDepth = 4;
+            const T kClipEps = T(0.01);
+
             UpdateCameraPos();
-            
-            
+
             const auto& polys = cells.Polygons();
             const auto& extrapolys = cells.ExtraPolygons();
-            std::vector<int32_t> m_post_render_poyls;
             const size_t cellCount = cells.CellCount();
 
             if (cellCount == 0 || polys.empty())
                 return 0;
 
+            // ---------------- Prolog: unveraendert ----------------
             const bool pvsMatches = pvs.IsBuilt() && pvs.LeafCount() == cellCount;
 
             if (!pvsMatches)
@@ -332,10 +357,10 @@ namespace ng::renderer::rasterizer {
             {
                 m_worldWarned = false;
             }
-            uint32_t medium = cells.Tree().MediumAtPoint(m_camera_pos);
 
+            uint32_t medium = cells.Tree().MediumAtPoint(m_camera_pos);
             const int32_t cell = pvsMatches ? cells.FindCell(m_camera_pos) : -1;
-            
+
             const bool dataChanged =
                 m_worldCellsPtr != &cells ||
                 m_worldPvsPtr != &pvs ||
@@ -346,9 +371,7 @@ namespace ng::renderer::rasterizer {
             if (dataChanged || m_worldCell != cell)
             {
                 if (pvsMatches && pvs.IsActiveLeaf(cell))
-                {
                     m_worldVisCells = pvs.VisibleLeaves(cell);
-                }
                 else
                 {
                     m_worldVisCells.resize(cellCount);
@@ -371,73 +394,18 @@ namespace ng::renderer::rasterizer {
                 BuildWorldCellBounds(cells);
             }
 
-            if (++m_worldStampValue == 0)
-            {
-                std::fill(m_worldPolyStamp.begin(), m_worldPolyStamp.end(), 0u);
-                m_worldStampValue = 1;
-            }
-
-            if (m_worldExtraPolyStamp.size() != extrapolys.size())
-                m_worldExtraPolyStamp.assign(extrapolys.size(), 0u);
-
-            if (++m_worldExtraStampValue == 0)
-            {
-                std::fill(m_worldExtraPolyStamp.begin(), m_worldExtraPolyStamp.end(), 0u);
-                m_worldExtraStampValue = 1;
-            }
-
             m_statistics.cells_in_pvs += (uint32_t)m_worldVisCells.size();
 
             if (m_culling_mode & CULL_FRUSTUM)
                 (void)Frustum();
 
-            // ---- Schritt 2: Frustum-Culling pro Zelle ----
-            m_worldCellOrder.clear();
-
-            for (int32_t c : m_worldVisCells)
-            {
-                if (c < 0 || (size_t)c >= cellCount) continue;
-                if (cells.CellPolygons(c).empty() && cells.CellExtraPolygons(c).empty())
-                    continue;
-
-                m_statistics.cells_with_geometry++;
-
-                ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
-
-                if (m_culling_mode & CULL_FRUSTUM)
-                {
-                    if (!m_frustum.intersectsAABB(box))
-                    {
-                        m_statistics.cells_frustum_culled++;
-                        continue;
-                    }
-                }
-
-                const auto center = (box.Min() + box.Max()) * static_cast<T>(0.5);
-                const auto d = center - m_camera_pos;
-                m_worldCellOrder.emplace_back(d ^ d, c);
-            }
-
-            // ---- Schritt 3: von vorn nach hinten ----
-            std::sort(m_worldCellOrder.begin(), m_worldCellOrder.end(),
-                [](const auto& a, const auto& b) { return a.first < b.first; });
-
-            // ---- Schritt 4: zeichnen ----
+            // ---------------- Lightmap-Bindung (unveraendert) ----------------
             bool haveMaterial = false;
             int lastMaterial = 0;
-
             m_worldHaveDirectTexture = false;
 
-            // ------------------------------------------------------------
-            // NEU: Lightmap-Bindung, nur fuer die Dauer DIESES RenderWorld-
-            // Aufrufs. m_worldLightmapView bleibt Member (stabile Adresse,
-            // ueberlebt End()), aber ihr Inhalt und der RASTER_LIGHTMAP-Flag
-            // werden am Ende der Funktion garantiert wieder entfernt, damit
-            // andere Pipeline-Aufrufe (RenderMesh etc.) davon nichts mitkriegen.
-            // ------------------------------------------------------------
-            
-             const bool haveLightmap = (static_cast<bool>(lightmapAtlas) && (m_rasterizer.State().flags & ng::renderer::rasterizer::RASTER_LIGHTMAP));
-            //const bool haveLightmap =false;
+            const bool haveLightmap = (static_cast<bool>(lightmapAtlas) &&
+                (m_rasterizer.State().flags & ng::renderer::rasterizer::RASTER_LIGHTMAP));
             if (haveLightmap)
             {
                 m_worldLightmapView.texture = lightmapAtlas;
@@ -447,7 +415,7 @@ namespace ng::renderer::rasterizer {
                 state.flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
                 m_rasterizer.SetState(state);
             }
-            
+
             auto bindPolygonTexture = [&](const auto& poly)
                 {
                     if (poly.texture)
@@ -494,116 +462,263 @@ namespace ng::renderer::rasterizer {
                     }
                 };
 
-            for (const auto& entry : m_worldCellOrder)
+            // ---------------- Sicht (Root oder durch ein Portal) ----------------
+            struct View
             {
-                const int32_t c = entry.second;
-                ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
+                Vec3 eye;                                   // Auge im nativen Raum dieser Sicht
+                std::vector<Plane> planes;                  // Frustum im nativen Raum (Root: leer, nutzt m_frustum)
+                const std::vector<int32_t>* visCells = nullptr;
+                ng::bsp::RigidXform<T> toScreen;            // nativer Raum -> reale Kamera
+            };
 
-                if (m_culling_mode & CULL_MOC)
+            View root;
+            root.eye = m_camera_pos;
+            root.visCells = &m_worldVisCells;
+
+            // Polygon -> Bildschirm. Root: wie bisher. Tiefer: erst gegen das Portal-Frustum
+            // klippen (nativer Raum), dann in den Raum der realen Kamera transformieren.
+            auto projectPoly = [&](const auto& poly, const View& v, bool isRoot) -> ScreenVerts
                 {
-                    if (!MOCTestAABBoxVisibility(box))
-                    {
-                        m_statistics.cells_culled_by_moc++;
-                        continue;
-                    }
-                }
+                    if (isRoot)
+                        return BringToScreen(poly.verts, poly.plane);
 
-                if (m_culling_mode & CULL_HZB)
-                {
-                    if (!HZBTestAABBoxVisibility(box))
-                    {
-                        m_statistics.cells_culled_by_hzb++;
-                        continue;
-                    }
-                }
+                    std::vector<Vertex> cv;
+                    if (!ng::bsp::ClipVertsToPlanes(poly.verts, v.planes, kClipEps, cv))
+                        return ScreenVerts();
 
-                m_statistics.cells_rendered++;
-
-                for (uint32_t pi : cells.CellPolygons(c))
-                {
-                    if (pi >= polys.size())
+                    for (auto& x : cv)
                     {
-                        printf("[RenderWorld] UNGUELTIGER Polygon-Index: pi=%u, polys.size()=%zu (Zelle %d)\n",
-                            pi, polys.size(), c);
-                        continue;
+                        x.world() = v.toScreen.Point(x.world());
+                        x.normal() = v.toScreen.Dir(x.normal());
                     }
 
-                    if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
-                    m_worldPolyStamp[pi] = m_worldStampValue;
+                    Plane pl = poly.plane;
+                    if (!ng::bsp::BuildOrientedPlane(cv, v.toScreen.Dir(poly.plane.normal()), pl))
+                        return ScreenVerts();
 
-                    const auto& poly = polys[pi];
+                    return BringToScreen(cv, pl);
+                };
 
-                    m_statistics.polys_in++;
+            auto drawView = [&](auto&& self, const View& view, int depth) -> void
+                {
+                    const bool isRoot = (depth == 0);
 
-                    std::vector<ng::renderer::rasterizer::ScreenVertex<T>> verts2d =
-                        BringToScreen(poly.verts, poly.plane);
-
-                    if (verts2d.size() < 3) continue;
-
-                    bindPolygonTexture(poly);
-
-                    m_rasterizer.DrawPolygon(verts2d);
-
-                    if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
-                        !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                    if (++m_worldStampValue == 0)
                     {
-                        m_rasterizer.DrawOcclusionPolygon(verts2d);
+                        std::fill(m_worldPolyStamp.begin(), m_worldPolyStamp.end(), 0u);
+                        m_worldStampValue = 1;
                     }
 
-                    m_statistics.polys_rendered++;
-                }
-                m_post_render_poyls.insert(m_post_render_poyls.end(), cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
-            }
+                    // ---- Schritt 2: Culling pro Zelle ----
+                    std::vector<std::pair<T, int32_t>> order;
 
-            for (uint32_t pi : m_post_render_poyls)
-            {
-                if (pi >= extrapolys.size())
-                {
-                    printf("[RenderWorld] UNGUELTIGER Extra-Polygon-Index: pi=%u, extrapolys.size()=%zu\n",
-                        pi, extrapolys.size());
-                    continue;
-                }
+                    for (int32_t c : *view.visCells)
+                    {
+                        if (c < 0 || (size_t)c >= cellCount) continue;
+                        if (cells.CellPolygons(c).empty() && cells.CellExtraPolygons(c).empty())
+                            continue;
 
-                const auto& poly = extrapolys[pi];
+                        if (isRoot) m_statistics.cells_with_geometry++;
 
-                m_statistics.polys_in++;
+                        const ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
 
-                std::vector<ng::renderer::rasterizer::ScreenVertex<T>> verts2d =
-                    BringToScreen(poly.verts, poly.plane);
+                        if (isRoot)
+                        {
+                            if ((m_culling_mode & CULL_FRUSTUM) && !m_frustum.intersectsAABB(box))
+                            {
+                                m_statistics.cells_frustum_culled++;
+                                continue;
+                            }
+                        }
+                        else if (ng::bsp::AABBOutsidePlanes(box, view.planes))
+                            continue;
 
-                if (verts2d.size() < 3) continue;
+                        const auto center = (box.Min() + box.Max()) * static_cast<T>(0.5);
+                        const auto d = center - view.eye;
+                        order.emplace_back(d ^ d, c);
+                    }
 
-                bindPolygonTexture(poly);
+                    // ---- Schritt 3: von vorn nach hinten ----
+                    std::sort(order.begin(), order.end(),
+                        [](const auto& a, const auto& b) { return a.first < b.first; });
 
-                if (poly.materialId == 0) {
+                    // ---- Schritt 4: zeichnen ----
+                    std::vector<int32_t> hits;                    // sichtbare Portale dieser Sicht
+                    std::vector<int32_t> postRender;              // Extra-Polygone (Wasser ...)
 
-                    ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
-                    state.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
-                    state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
-                    state.flags |= ng::renderer::rasterizer::RASTER_WOBBLE;
-                    state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
-                    state.materialAlpha = 0.8;
-                    m_rasterizer.PushState();
-                    m_rasterizer.SetState(state);
-                    m_rasterizer.DrawPolygon(verts2d);
-                    m_rasterizer.PopState();
-                }
-                else  m_rasterizer.DrawPolygon(verts2d);
+                    for (const auto& entry : order)
+                    {
+                        const int32_t c = entry.second;
+                        const ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
 
-                if ((m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
-                    !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
-                {
-                    m_rasterizer.DrawOcclusionPolygon(verts2d);
-                }
+                        // MOC/HZB gelten nur fuer die echte Kamera
+                        if (isRoot && (m_culling_mode & CULL_MOC))
+                        {
+                            if (!MOCTestAABBoxVisibility(box)) { m_statistics.cells_culled_by_moc++; continue; }
+                        }
+                        if (isRoot && (m_culling_mode & CULL_HZB))
+                        {
+                            if (!HZBTestAABBoxVisibility(box)) { m_statistics.cells_culled_by_hzb++; continue; }
+                        }
 
-                m_statistics.polys_rendered++;
-            }
+                        m_statistics.cells_rendered++;
 
-            // ------------------------------------------------------------
-            // NEU: Lightmap-State wieder entfernen - gilt NUR fuer diesen
-            // RenderWorld-Aufruf, andere Teile der Pipeline (RenderMesh, etc.)
-            // duerfen davon nichts mitbekommen.
-            // ------------------------------------------------------------
+                        for (uint32_t pi : cells.CellPolygons(c))
+                        {
+                            if (pi >= polys.size())
+                            {
+                                printf("[RenderWorld] UNGUELTIGER Polygon-Index: pi=%u, polys.size()=%zu (Zelle %d)\n",
+                                    pi, polys.size(), c);
+                                continue;
+                            }
+
+                            if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                            m_worldPolyStamp[pi] = m_worldStampValue;
+
+                            const auto& poly = polys[pi];
+
+                            // ---- Portal-Face: nicht zeichnen, sondern merken ----
+                            if ((poly.flags & ng::bsp::POLY_FLAG_PORTAL) &&
+                                depth < kMaxPortalDepth &&
+                                poly.portalId >= 0 && (size_t)poly.portalId < warps.size())
+                            {
+                                const auto& w = warps[poly.portalId];
+                                if ((w.flags & ng::bsp::WARP_RENDER) && w.partner >= 0 &&
+                                    w.plane.distance(view.eye) > T(0))
+                                {
+                                    if (std::find(hits.begin(), hits.end(), poly.portalId) == hits.end())
+                                        hits.push_back(poly.portalId);
+                                    continue;
+                                }
+                                // sonst: normal zeichnen (z.B. Maximaltiefe -> Portal-Textur als Fuellung)
+                            }
+
+                            m_statistics.polys_in++;
+
+                            ScreenVerts verts2d = projectPoly(poly, view, isRoot);
+                            if (verts2d.size() < 3) continue;
+
+                            bindPolygonTexture(poly);
+                            m_rasterizer.DrawPolygon(verts2d);
+
+                            if (isRoot && (m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                                !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                            {
+                                m_rasterizer.DrawOcclusionPolygon(verts2d);
+                            }
+
+                            m_statistics.polys_rendered++;
+                        }
+
+                        postRender.insert(postRender.end(),
+                            cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
+                    }
+
+                    for (uint32_t pi : postRender)
+                    {
+                        if (pi >= extrapolys.size())
+                        {
+                            printf("[RenderWorld] UNGUELTIGER Extra-Polygon-Index: pi=%u, extrapolys.size()=%zu\n",
+                                pi, extrapolys.size());
+                            continue;
+                        }
+
+                        const auto& poly = extrapolys[pi];
+                        m_statistics.polys_in++;
+
+                        ScreenVerts verts2d = projectPoly(poly, view, isRoot);
+                        if (verts2d.size() < 3) continue;
+
+                        bindPolygonTexture(poly);
+
+                        if (poly.materialId == 0)
+                        {
+                            ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
+                            state.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                            state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
+                            state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
+                            state.materialAlpha = 0.8;
+                            m_rasterizer.PushState();
+                            m_rasterizer.SetState(state);
+                            m_rasterizer.DrawPolygon(verts2d);
+                            m_rasterizer.PopState();
+                        }
+                        else m_rasterizer.DrawPolygon(verts2d);
+
+                        if (isRoot && (m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                            !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                        {
+                            m_rasterizer.DrawOcclusionPolygon(verts2d);
+                        }
+
+                        m_statistics.polys_rendered++;
+                    }
+
+                    // ---- Portale dieser Sicht: Gegenseite rendern ----
+                    if (hits.empty()) return;
+
+                    // Frustum dieser Sicht als Ebenen (Root: von der Kamera, sonst die gespeicherten)
+                    std::vector<Plane> curPlanes = isRoot ? CameraFrustumPlanes() /* HOOK 1 */ : view.planes;
+
+                    for (int32_t id : hits)
+                    {
+                        const auto& A = warps[id];
+                        const auto& B = warps[A.partner];
+
+                        Vec3 nextEye;
+                        std::vector<Plane> nextPlanes;
+                        std::vector<Vec3> entry;
+
+                        if (!ng::bsp::BuildNextFrustum(A, B, view.eye, curPlanes, nextEye, nextPlanes,
+                            T(1), &entry))
+                            continue;
+
+                        // (a) Sichtbaren Teil des Portals: Tiefe auf "fern" setzen (HOOK 2)
+                        {
+                            std::vector<Vertex> ev;
+                            ev.reserve(entry.size());
+                            for (const auto& p : entry)
+                            {
+                                Vertex v;
+                                v.world() = view.toScreen.Point(p);
+                                ev.push_back(v);
+                            }
+
+                            Plane planeReal = A.plane;
+                            if (ng::bsp::BuildOrientedPlane(ev, view.toScreen.Dir(A.normal), planeReal))
+                            {
+                                ScreenVerts pv = BringToScreen(ev, planeReal);
+                                if (pv.size() >= 3)
+                                {
+                                    ng::renderer::rasterizer::DrawState<T> st = m_rasterizer.State();
+                                    st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                                    st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_CLEAR;   // HOOK 2
+                                    st.flags &= ~ng::renderer::rasterizer::RASTER_TEXTURE;
+                                    st.flags &= ~ng::renderer::rasterizer::RASTER_LIGHTMAP;
+                                    m_rasterizer.PushState();
+                                    m_rasterizer.SetState(st);
+                                    m_rasterizer.DrawPolygon(pv);
+                                    m_rasterizer.PopState();
+                                    m_worldHaveDirectTexture = false;   // Textur-State wurde gewechselt
+                                }
+                            }
+                        }
+
+                        // (b) Gegenseite: Sicht von B mit B's Ziel-PVS
+                        View nv;
+                        nv.eye = nextEye;
+                        nv.planes = std::move(nextPlanes);
+                        nv.visCells = &B.visCells;
+                        nv.toScreen = view.toScreen.After(
+                            ng::bsp::RigidXform<T>::FromPortals(B, A));   // B-Raum -> A-Raum -> real
+
+                        self(self, nv, depth + 1);
+                    }
+                };
+
+            drawView(drawView, root, 0);
+
+            // ---------------- Lightmap-State entfernen (unveraendert) ----------------
             if (haveLightmap)
             {
                 ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
@@ -611,14 +726,24 @@ namespace ng::renderer::rasterizer {
                 state.lightmapTex = nullptr;
                 m_rasterizer.SetState(state);
             }
-			return medium;
+            return medium;
         }
+
 
         // Ohne Material-Callback
         inline uint32_t RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
             ng::renderer::gfx::Texture lightmapAtlas)
         {
-            return RenderWorld(cells, pvs, lightmapAtlas, [](int) {});
+            static const std::vector<ng::bsp::WarpPortal<T>> none;
+            return RenderWorld(cells, pvs, lightmapAtlas, none, [](int) {});
+        }
+        
+        // Mit Portalen, ohne Material-Callback
+        inline uint32_t RenderWorld(const ng::bsp::VisCells<T>& cells, const ng::bsp::PVS<T>& pvs,
+            ng::renderer::gfx::Texture lightmapAtlas,
+            const std::vector<ng::bsp::WarpPortal<T>>& warps)
+        {
+            return RenderWorld(cells, pvs, lightmapAtlas, warps, [](int) {});
         }
 
         // Muss aufgerufen werden, wenn VisCells/PVS neu gebaut wurden, ohne dass
@@ -681,7 +806,85 @@ namespace ng::renderer::rasterizer {
             return m_frustum;
         }
 
-     
+        // ----------------------------------------------------------------------
+   // In die Klasse RenderPipeline einfügen (z.B. direkt unter Frustum()).
+   //
+   // Liefert die 5 Sichtebenen der echten Kamera im Weltraum
+   // (links, rechts, unten, oben, near), Normalen zeigen nach INNEN.
+   //
+   // Grundlage: dieselben Sichtbarkeitsbedingungen wie in TransformToScreen():
+   //     -w <= x <= w,  -w <= y <= w,  z >= 0
+   // Welt->Clip ist affin; die Koeffizienten werden numerisch aus
+   // ComboMatrix() gelesen (unabhaengig von der Matrix-Konvention).
+   // ----------------------------------------------------------------------
+        inline std::vector<ng::math::RayPlaneLine<3, T>> CameraFrustumPlanes()
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            using Plane = ng::math::RayPlaneLine<3, T>;
+
+            const auto& M = ComboMatrix();
+
+            const auto c0 = M >> Vec3(0, 0, 0);
+            const auto cx = M >> Vec3(1, 0, 0);
+            const auto cy = M >> Vec3(0, 1, 0);
+            const auto cz = M >> Vec3(0, 0, 1);
+
+            // f(p) = ax*px + ay*py + az*pz + b
+            struct Lin { T ax, ay, az, b; };
+
+            auto lin = [&](auto get) -> Lin
+                {
+                    const T b = (T)get(c0);
+                    return Lin{ (T)get(cx) - b, (T)get(cy) - b, (T)get(cz) - b, b };
+                };
+
+            const Lin X = lin([](const auto& c) { return c.x(); });
+            const Lin Y = lin([](const auto& c) { return c.y(); });
+            const Lin Z = lin([](const auto& c) { return c.z(); });
+            const Lin W = lin([](const auto& c) { return c.w(); });
+
+            auto comb = [](const Lin& a, const Lin& b, T s) -> Lin
+                {
+                    return Lin{ a.ax + s * b.ax, a.ay + s * b.ay, a.az + s * b.az, a.b + s * b.b };
+                };
+
+            // Ebene "f(p) >= 0 ist innen" als RayPlaneLine mit Normale nach innen
+            auto toPlane = [&](const Lin& f, std::vector<Plane>& out)
+                {
+                    Vec3 n(f.ax, f.ay, f.az);
+                    const T len = n.length();
+                    if (len < T(1e-12)) return;
+
+                    n = n * (T(1) / len);
+                    const T d = f.b / len;                  // n.p + d = 0 auf der Ebene
+
+                    const Vec3 p0 = n * (-d);               // Punkt auf der Ebene
+
+                    Vec3 axis(0, 0, 0);
+                    if (std::abs(n(0)) <= std::abs(n(1)) && std::abs(n(0)) <= std::abs(n(2))) axis(0) = T(1);
+                    else if (std::abs(n(1)) <= std::abs(n(2)))                                axis(1) = T(1);
+                    else                                                                      axis(2) = T(1);
+
+                    Vec3 u = axis % n; u.normalize();
+                    Vec3 v = n % u;    v.normalize();
+
+                    Plane pl(p0, p0 + u, p0 + v);
+                    if (pl.distance(p0 + n) < T(0))         // Orientierung pruefen, ggf. drehen
+                        pl = Plane(p0, p0 + v, p0 + u);
+
+                    out.push_back(pl);
+                };
+
+            std::vector<Plane> planes;
+            planes.reserve(5);
+            toPlane(comb(X, W, T(1)), planes);    // links : x + w >= 0
+            toPlane(comb(W, X, T(-1)), planes);   // rechts: w - x >= 0
+            toPlane(comb(Y, W, T(1)), planes);    // unten : y + w >= 0
+            toPlane(comb(W, Y, T(-1)), planes);   // oben  : w - y >= 0
+            toPlane(Z, planes);                   // near  : z >= 0
+            return planes;
+        }
+
 
         inline void SetCamera(const scene::Camera<T>& camera) {
 

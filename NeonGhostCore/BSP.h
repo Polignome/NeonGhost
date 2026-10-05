@@ -18,6 +18,7 @@
 #include <chrono>
 #include <unordered_map>
 #include <random>
+#include "WarpPortal.h"
 namespace ng
 {
     namespace bsp
@@ -45,7 +46,9 @@ namespace ng
             POLY_FLAG_OUT_SIDE = 1 << 1,        // Polygone der Umschliessungsbox (Normale nach innen!)
             POLY_FLAG_SPLITTER_USED = 1 << 2,   // intern: Ebene wurde schon als Splitter benutzt
             POLY_FLAG_VOLUME_FACE = 1 << 3,     // Flaeche eines eingefuegten Volumen-Brushes
-            POLY_FLAG_VOLUME_CAP = 1 << 4       // beim Klippen erzeugte Schnittflaeche (Deckel)
+            POLY_FLAG_VOLUME_CAP = 1 << 4,       // beim Klippen erzeugte Schnittflaeche (Deckel)
+            POLY_FLAG_PORTAL = 1 << 5          // Face eines Warp-Portals
+
         };
 
         // ------------------------------------------------------------
@@ -65,6 +68,7 @@ namespace ng
             uint32_t objectId = 0;
             uint32_t flags = 0;
             int volumeId = -1;
+            int32_t portalId = -1;
 
             // ---- Lightmap-Zuordnung, gefuellt von BuildLightmapAtlas() /
             //      BakeExtraPolygonLightmaps() ----
@@ -172,6 +176,7 @@ namespace ng
             frontOut.flags = backOut.flags = poly.flags;
             frontOut.volumeId = backOut.volumeId = poly.volumeId;
             frontOut.texture = backOut.texture = poly.texture;
+            frontOut.portalId = backOut.portalId = poly.portalId;
 
             for (size_t i = 0; i < n; ++i)
             {
@@ -218,7 +223,7 @@ namespace ng
         // ------------------------------------------------------------
 
         template<class T>
-        bool SamePlane(
+        inline bool SamePlane(
             const ng::math::RayPlaneLine<3, T>& a,
             const ng::math::RayPlaneLine<3, T>& b,
             T epsilon = ng::math::EPSILON<T>)
@@ -239,7 +244,7 @@ namespace ng
 
         // Gleiche Ebene, Orientierung egal.
         template<class T>
-        bool Coplanar(
+        inline bool Coplanar(
             const ng::math::RayPlaneLine<3, T>& a,
             const ng::math::RayPlaneLine<3, T>& b,
             T epsilon)
@@ -260,7 +265,7 @@ namespace ng
         }
 
         template<class T>
-        bool AddUniquePlane(
+        inline bool AddUniquePlane(
             std::vector<ng::math::RayPlaneLine<3, T>>& planes,
             const ng::math::RayPlaneLine<3, T>& plane,
             T epsilon = ng::math::EPSILON<T>)
@@ -439,7 +444,7 @@ namespace ng
         };
 
         template <class T>
-        PlaneKey MakePlaneKey(const math::RayPlaneLine<3, T>& plane)
+        inline PlaneKey MakePlaneKey(const math::RayPlaneLine<3, T>& plane)
         {
             const auto n = plane.normal();
 
@@ -462,7 +467,7 @@ namespace ng
         }
 
         template <class T>
-        bool FindBestSplitter(
+        inline bool FindBestSplitter(
             const std::vector<BSPPolygon<T>>& polygons,
             math::RayPlaneLine<3, T>& bestPlane,
             size_t& bestSource,               // Index des Polygons, aus dem der Splitter stammt
@@ -636,7 +641,7 @@ namespace ng
         };
 
         template <class T>
-        bool ClipPortalByAABB(Portal<T>& portal, ng::bounding::AABBox<3, T>& bbox)
+        inline bool ClipPortalByAABB(Portal<T>& portal, ng::bounding::AABBox<3, T>& bbox)
         {
             std::vector<ng::math::Matrix<3, 1, T>> verts = portal.verts();
 
@@ -662,7 +667,7 @@ namespace ng
         // ------------------------------------------------------------
 
         template <class T>
-        T PortalArea(const std::vector<ng::math::Matrix<3, 1, T>>& v)
+        inline T PortalArea(const std::vector<ng::math::Matrix<3, 1, T>>& v)
         {
             ng::math::Matrix<3, 1, T> sum(0, 0, 0);
             for (size_t i = 1; i + 1 < v.size(); ++i)
@@ -671,7 +676,7 @@ namespace ng
         }
 
         template <class T>
-        T PortalPerimeter(const std::vector<ng::math::Matrix<3, 1, T>>& v)
+        inline T PortalPerimeter(const std::vector<ng::math::Matrix<3, 1, T>>& v)
         {
             T s = T(0);
             for (size_t i = 0; i < v.size(); ++i)
@@ -682,7 +687,7 @@ namespace ng
         // Grobe "Breite": 2 * Flaeche / Umfang. Duenne Streifen (Nahtreste) haben
         // eine sehr kleine Breite, echte Oeffnungen nicht.
         template <class T>
-        T PortalMinWidth(const std::vector<ng::math::Matrix<3, 1, T>>& v)
+        inline T PortalMinWidth(const std::vector<ng::math::Matrix<3, 1, T>>& v)
         {
             const T per = PortalPerimeter(v);
             if (per <= T(0)) return T(0);
@@ -693,7 +698,7 @@ namespace ng
         // einem konvexen Portal ab. Liefert die konvexen Reststuecke AUSSERHALB
         // des Polygons.
         template <class T>
-        void SubtractPolygonFromPortal(
+        inline void SubtractPolygonFromPortal(
             const std::vector<ng::math::Matrix<3, 1, T>>& portalVerts,
             const BSPPolygon<T>& poly,
             std::vector<std::vector<ng::math::Matrix<3, 1, T>>>& outside,
@@ -1394,7 +1399,7 @@ namespace ng
         // ------------------------------------------------------------
 
         template <class T>
-        std::unique_ptr<BSPNode<T>> BuildBsp(const std::vector<BSPPolygon<T>>& polygons)
+        inline std::unique_ptr<BSPNode<T>> BuildBsp(const std::vector<BSPPolygon<T>>& polygons)
         {
             std::vector<BSPPolygon<T>> work;
             for (const auto& p : polygons)
@@ -2081,7 +2086,7 @@ namespace ng
         };
 
         template<class T>
-        bool RayIntersectsPolygon(const ng::math::Matrix<3,1,T>& origin, const ng::math::Matrix<3,1,T>& dir,
+        inline bool RayIntersectsPolygon(const ng::math::Matrix<3,1,T>& origin, const ng::math::Matrix<3,1,T>& dir,
             const ng::bsp::BSPPolygon<T>& poly, T& outT, T eps)
         {
             const ng::math::Matrix<3,1,T> n = poly.plane.normal();
@@ -2125,7 +2130,7 @@ namespace ng
 
 
         template<class T>
-        BSPRayHit<T> BSPRayTest(
+        inline BSPRayHit<T> BSPRayTest(
             const ng::bsp::BSPNode<T>* node,
             const ng::math::Matrix<3,1,T>& origin,
             const ng::math::Matrix<3,1,T>& dir,
@@ -2244,7 +2249,7 @@ namespace ng
 
         // TEMP-DEBUG: direkt nach dem Bake-Aufruf, VOR Radiosity, einmalig ausführen
         template<class T>
-        void DebugCompareBSPvsBruteforce(
+        inline  void DebugCompareBSPvsBruteforce(
             const ng::bsp::BSPTree<T>& tree,
             const std::vector<ng::bsp::BSPPolygon<T>>& allPolys,
             int numTestRays,
@@ -2313,6 +2318,291 @@ namespace ng
             printf("[DEBUG] %d/%d Rays getestet, %d Abweichungen (%.1f%%)\n",
                 numTestRays, numTestRays, mismatches, 100.0 * mismatches / std::max(1, numTestRays));
         }
+
+
+
+
+
+
+        enum : uint32_t
+        {
+            WARP_TELEPORT = 1 << 0,   // Spieler/Objekte werden versetzt
+            WARP_RENDER = 1 << 1    // Sicht der Gegenseite wird gerendert
+        };
+
+        template <class T>
+        struct WarpPortal
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
+            using Plane = math::RayPlaneLine<3, T>;
+
+            int32_t  id = -1;
+            int32_t  partner = -1;
+            uint32_t flags = WARP_TELEPORT | WARP_RENDER;
+
+            std::vector<Vec3> verts;      // konvexes Portal-Polygon (Welt)
+            Plane plane;                  // Normale zeigt in den begehbaren Raum
+            Vec3 origin, right, up, normal;
+
+            std::vector<int32_t> leaves;     // Zellen, die Fragmente dieses Portals enthalten
+            std::vector<int32_t> visCells;   // ODER der PVS-Zeilen dieser Zellen (sortiert);
+            // = was man DURCH dieses Portal als Ziel sieht
+
+// Normale so ausrichten, dass sie zu "roomPoint" zeigt (z.B. Position des
+// Entities, das direkt vor dem Face steht), dann Basis aufbauen.
+            void Finalize(const Vec3& roomPoint, const Vec3& worldUp)
+            {
+                origin = Vec3(0, 0, 0);
+                for (const auto& v : verts) origin = origin + v;
+                origin = origin * (T(1) / T(verts.size()));
+
+                normal = plane.normal();
+                normal.normalize();
+                if (((roomPoint - origin) ^ normal) < T(0))
+                {
+                    normal = normal * T(-1);
+                    // Plane mit umgedrehter Orientierung neu aufbauen
+                    if (verts.size() >= 3) plane = Plane(verts[0], verts[2], verts[1]);
+                }
+
+                Vec3 u = worldUp - normal * (worldUp ^ normal);
+                if (u.length() < T(1e-3))                     // Boden/Decke: anderer Hinweis
+                {
+                    const Vec3 alt(1, 0, 0);
+                    u = alt - normal * (alt ^ normal);
+                }
+                u.normalize();
+                up = u;
+                right = up % normal;
+                right.normalize();
+            }
+        };
+
+        // Richtung von Portal a nach Portal b (180 Grad um "up": man tritt VOR a ein
+        // und kommt VOR b heraus).
+        template <class T>
+        inline math::Matrix<3, 1, T> WarpDir(const WarpPortal<T>& a, const WarpPortal<T>& b,
+            const math::Matrix<3, 1, T>& d)
+        {
+            const T lx = d ^ a.right, ly = d ^ a.up, lz = d ^ a.normal;
+            return b.right * (-lx) + b.up * ly + b.normal * (-lz);
+        }
+
+        template <class T>
+        inline math::Matrix<3, 1, T> WarpPoint(const WarpPortal<T>& a, const WarpPortal<T>& b,
+            const math::Matrix<3, 1, T>& p)
+        {
+            return b.origin + WarpDir(a, b, p - a.origin);
+        }
+
+        // Polygon gegen mehrere Ebenen klippen (behaelt jeweils die FRONT-Seite).
+        template <class T>
+        std::vector<math::Matrix<3, 1, T>> ClipPolyToPlanes(
+            std::vector<math::Matrix<3, 1, T>> verts,
+            const std::vector<math::RayPlaneLine<3, T>>& planes)
+        {
+            for (const auto& pl : planes)
+            {
+                verts = ng::geometry::ClipByPlane(verts, pl, ng::geometry::ClipSide::FRONT);
+                if (verts.size() < 3) return {};
+            }
+            return verts;
+        }
+
+        // Seitenebenen einer Pyramide: Auge -> Kanten des Polygons. Innen = vorne.
+        template <class T>
+        std::vector<math::RayPlaneLine<3, T>> FrustumFromPolygon(
+            const math::Matrix<3, 1, T>& eye,
+            const std::vector<math::Matrix<3, 1, T>>& poly)
+        {
+            using Plane = math::RayPlaneLine<3, T>;
+            std::vector<Plane> out;
+
+            math::Matrix<3, 1, T> c(0, 0, 0);
+            for (const auto& v : poly) c = c + v;
+            c = c * (T(1) / T(poly.size()));
+
+            for (size_t i = 0; i < poly.size(); ++i)
+            {
+                const auto& a = poly[i];
+                const auto& b = poly[(i + 1) % poly.size()];
+                if (((a - eye) % (b - eye)).length() < T(1e-9)) continue;   // entartet
+
+                Plane pl(eye, a, b);
+                if (pl.distance(c) < T(0)) pl = Plane(eye, b, a);
+                out.push_back(pl);
+            }
+            return out;
+
+        }
+
+        template <class T>
+        bool BuildNextFrustum(const WarpPortal<T>& a, const WarpPortal<T>& b,
+            const math::Matrix<3, 1, T>& eye,
+            const std::vector<math::RayPlaneLine<3, T>>& curFrustum,
+            math::Matrix<3, 1, T>& nextEye,
+            std::vector<math::RayPlaneLine<3, T>>& nextPlanes,
+            T minArea = T(1),
+            std::vector<math::Matrix<3, 1, T>>* entryOut = nullptr)
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
+
+            // 1. Eintritts-Portal gegen aktuellen Frustum
+            std::vector<Vec3> p = ClipPolyToPlanes(a.verts, curFrustum);
+            if (p.size() < 3 || PortalArea(p) < minArea) return false;
+            if (entryOut) *entryOut = p;     // sichtbares Stueck von A (nativer Raum)
+
+            // 2. nach B abbilden
+            nextEye = WarpPoint(a, b, eye);
+            std::vector<Vec3> q;
+            q.reserve(p.size());
+            for (const auto& v : p) q.push_back(WarpPoint(a, b, v));
+
+            // 3. gegen die echte Oeffnung von B beschneiden (falls A und B verschieden gross)
+            q = ClipPolyToPlanes(q, FrustumFromPolygon(nextEye, b.verts));
+            if (q.size() < 3 || PortalArea(q) < minArea) return false;
+
+            // 4. neuer Frustum + Portalebene von B als Near-Plane
+            nextPlanes = FrustumFromPolygon(nextEye, q);
+            nextPlanes.push_back(b.plane);
+            return nextPlanes.size() >= 4;
+        }
+
+        // Hat die Bewegung p0 -> p1 das Portal (von vorne nach hinten) durchquert?
+        template <class T>
+        bool CrossedPortal(const WarpPortal<T>& w,
+            const math::Matrix<3, 1, T>& p0, const math::Matrix<3, 1, T>& p1)
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
+
+            const T d0 = (p0 - w.origin) ^ w.normal;
+            const T d1 = (p1 - w.origin) ^ w.normal;
+            if (!(d0 > T(0) && d1 <= T(0))) return false;
+
+            const T t = d0 / (d0 - d1);
+            const Vec3 hit = p0 + (p1 - p0) * t;
+
+            const size_t n = w.verts.size();
+            for (size_t i = 0; i < n; ++i)
+            {
+                const Vec3 a = w.verts[i], b = w.verts[(i + 1) % n];
+                if ((((b - a) % (hit - a)) ^ w.normal) < T(0)) return false;   // ausserhalb
+            }
+            return true;
+        }
+        // ------------------------------------------------------------
+        // RigidXform: starre Transformation p' = R*p + t (nur Drehung + Verschiebung)
+        //
+        // FromPortals(B, A) bildet einen Punkt im Raum um B in den Raum um A ab.
+        // Verkettung fuer Rekursion: next.toScreen = view.toScreen.After(FromPortals(B, A))
+        // ------------------------------------------------------------
+        template <class T>
+        struct RigidXform
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
+
+            Vec3 c0, c1, c2;   // Spalten der Rotation
+            Vec3 t;
+
+            RigidXform() : c0(1, 0, 0), c1(0, 1, 0), c2(0, 0, 1), t(0, 0, 0) {}
+
+            Vec3 Dir(const Vec3& d) const { return c0 * d(0) + c1 * d(1) + c2 * d(2); }
+            Vec3 Point(const Vec3& p) const { return Dir(p) + t; }
+
+            static RigidXform FromPortals(const WarpPortal<T>& src, const WarpPortal<T>& dst)
+            {
+                RigidXform r;
+                r.c0 = WarpDir(src, dst, Vec3(1, 0, 0));
+                r.c1 = WarpDir(src, dst, Vec3(0, 1, 0));
+                r.c2 = WarpDir(src, dst, Vec3(0, 0, 1));
+                r.t = dst.origin - r.Dir(src.origin);
+                return r;
+            }
+
+            // this(inner(p))
+            RigidXform After(const RigidXform& inner) const
+            {
+                RigidXform r;
+                r.c0 = Dir(inner.c0);
+                r.c1 = Dir(inner.c1);
+                r.c2 = Dir(inner.c2);
+                r.t = Point(inner.t);
+                return r;
+            }
+        };
+
+        // Klippt ein Vertex-Polygon (mit Attribut-Interpolation) gegen mehrere Ebenen,
+        // behaelt jeweils die FRONT-Seite. false = nichts uebrig.
+        template <class T>
+        bool ClipVertsToPlanes(const std::vector<ng::geometry::Vertex<T>>& in,
+            const std::vector<math::RayPlaneLine<3, T>>& planes, T eps,
+            std::vector<ng::geometry::Vertex<T>>& out)
+        {
+            using Plane = math::RayPlaneLine<3, T>;
+
+            out = in;
+            std::vector<ng::geometry::Vertex<T>> tmp;
+
+            for (const auto& pl : planes)
+            {
+                const int cls = ClassifyVerts(pl, out, eps);
+                if (cls == Plane::FRONT || cls == Plane::PLANAR) continue;
+                if (cls == Plane::BACK) return false;
+
+                tmp.clear();
+                const size_t n = out.size();
+                for (size_t i = 0; i < n; ++i)
+                {
+                    const auto& cur = out[i];
+                    const auto& nxt = out[(i + 1) % n];
+                    const T dc = pl.distance(cur.world());
+                    const T dn = pl.distance(nxt.world());
+
+                    if (dc >= -eps) tmp.push_back(cur);
+
+                    if ((dc > eps && dn < -eps) || (dc < -eps && dn > eps))
+                        tmp.push_back(LerpVertex(cur, nxt, dc / (dc - dn)));
+                }
+
+                if (tmp.size() < 3) return false;
+                out.swap(tmp);
+            }
+            return true;
+        }
+
+        // true, wenn die Box komplett hinter einer der Ebenen liegt (= unsichtbar).
+        template <class T>
+        bool AABBOutsidePlanes(const ng::bounding::AABBox<3, T>& box,
+            const std::vector<math::RayPlaneLine<3, T>>& planes)
+        {
+            const auto mn = box.Min();
+            const auto mx = box.Max();
+
+            for (const auto& pl : planes)
+            {
+                const auto n = pl.normal();
+                const math::Matrix<3, 1, T> p(
+                    n(0) >= T(0) ? mx(0) : mn(0),
+                    n(1) >= T(0) ? mx(1) : mn(1),
+                    n(2) >= T(0) ? mx(2) : mn(2));
+
+                if (pl.distance(p) < T(0)) return true;
+            }
+            return false;
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     } // namespace bsp

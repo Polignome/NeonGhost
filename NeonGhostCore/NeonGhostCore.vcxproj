@@ -173,6 +173,7 @@
     <ClInclude Include="miniz_zip.h" />
     <ClInclude Include="Parser.h" />
     <ClInclude Include="PlayerController.h" />
+    <ClInclude Include="Portalcompile.h" />
     <ClInclude Include="PVS.h" />
     <ClInclude Include="Radiosity.h" />
     <ClInclude Include="Rect.h" />

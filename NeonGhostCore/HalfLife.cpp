@@ -9,6 +9,7 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 	if (index >= str.size()) return (unsigned long)str.size();
 
 	static bool  m_brush = false;
+	static bool  m_liquit = false;
 	while (index < (unsigned long)str.size())
 	{
 
@@ -17,10 +18,17 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 		if (s == "{")
 		{
 			std::string name = "Noname";
-
+			
 			if (getActiveEntity().name == "world") {
 				name = "solid";
 				m_brush = true;
+				m_liquit = false;
+			}
+			if (getActiveEntity().name == "func_water")
+			{
+				name = "liquit";
+				m_brush = false;
+				m_liquit = true;
 			}
 			BeginEntity(name);
 			index = StepStrings(str, index + 1);
@@ -76,9 +84,215 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 			}
 
 			if (m_brush) m_brush = false;
+			if (m_liquit) m_liquit = false;
 			EndEntity();
 			return index;
 		}
+
+		if (m_liquit) {
+			if (s == "(") {
+
+				BeginEntity("side");
+
+
+
+				if (index + 30 >= str.size()) {
+					SetError("String zur Kurz");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 4] != ")") {
+					SetError("( a b c >)< ( a b c ) ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 5] != "(") {
+					SetError("( a b c ) >(< a b c ) ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 9] != ")") {
+					SetError("( a b c ) ( a b c >)< ( a b c ) ");
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 10] != "(") {
+
+					SetError("( a b c ) ( a b c ) >(< a b c )! " + str[index + 10]);
+					return (unsigned long)str.size() + 1;
+				}
+				if (str[index + 14] != ")") {
+					SetError("( a b c ) ( a b c ) ( a b c >)< ");
+					return (unsigned long)str.size() + 1;
+				}
+
+				{
+					std::string v1 = "";
+
+#ifdef SWAP_AXIS
+					v1 += str[index + 0]; v1 += " ";// ( 
+					v1 += str[index + 2]; v1 += " ";// a
+					v1 += str[index + 3]; v1 += " ";// b
+					v1 += str[index + 1]; v1 += " ";// a
+					v1 += str[index + 4]; v1 += " ";// )
+
+					v1 += str[index + 5]; v1 += " ";// (
+					v1 += str[index + 7]; v1 += " ";// a
+					v1 += str[index + 8]; v1 += " ";// b
+					v1 += str[index + 6]; v1 += " ";// a
+					v1 += str[index + 9]; v1 += " ";// )
+
+					v1 += str[index + 10]; v1 += " ";// (
+					v1 += str[index + 12]; v1 += " ";// a
+					v1 += str[index + 13]; v1 += " ";// b
+					v1 += str[index + 11]; v1 += " ";// a
+					v1 += str[index + 14]; v1 += " ";// )
+#else /////////////////////////////////////////////////////////////////////////
+					v1 += str[index + 0]; v1 += " ";// ( 
+					v1 += str[index + 1]; v1 += " ";// a
+					v1 += str[index + 2]; v1 += " ";// b
+					v1 += str[index + 3]; v1 += " ";// a
+					v1 += str[index + 4]; v1 += " ";// )
+
+					v1 += str[index + 5]; v1 += " ";// (
+					v1 += str[index + 6]; v1 += " ";// a
+					v1 += str[index + 7]; v1 += " ";// b
+					v1 += str[index + 8]; v1 += " ";// a
+					v1 += str[index + 9]; v1 += " ";// )
+
+					v1 += str[index + 10]; v1 += " ";// (
+					v1 += str[index + 11]; v1 += " ";// a
+					v1 += str[index + 12]; v1 += " ";// b
+					v1 += str[index + 13]; v1 += " ";// a
+					v1 += str[index + 14]; v1 += " ";// )
+
+#endif
+
+
+
+
+					this->AddParameter("plane", v1);
+
+				}
+
+				this->AddParameter("material", str[index + 15]);
+
+				for (const auto& p : getActiveEntity().parameter)
+				{
+					printf("Skin -> %s\n", p.name.c_str()	);
+					int skin = 0;
+					if (p.name == "skin" && !p.values.empty())
+					{
+						try
+						{
+							auto skin = std::stoi(p.values[0]);
+							switch (skin) {
+							case '-1': this->AddParameter("aggregate", "glas"); printf("Glas \n"); break;
+							case '-3': this->AddParameter("aggregate", "liquid1"); printf("Water \n"); break;
+							case '-4': this->AddParameter("aggregate", "liquid2"); printf("Slime \n"); break;
+							case '-5': this->AddParameter("aggregate", "liquid3"); printf("Lava \n"); break;
+							default: this->AddParameter("aggregate", "solid"); printf("Solid \n"); break;
+							}
+
+
+						}
+						catch (...)
+						{
+							this->AddParameter("aggregate", "liquid1"); printf("Water \n"); break;
+								skin = 0;
+						}
+						break;
+					}
+
+
+				}
+
+
+
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+					/*
+					v1 += str[index + 16]; v1 += " ";// [
+					v1 += str[index + 17]; v1 += " ";// a
+					v1 += str[index + 18]; v1 += " ";// b
+					v1 += str[index + 19]; v1 += " ";// c
+					v1 += str[index + 20]; v1 += " ";// d
+					v1 += str[index + 21]; v1 += " ";// ]
+					v1 += str[index + 29]; v1 += " ";// scaleu
+					*/
+
+#ifdef SWAP_AXIS
+					v1 += str[index + 16] + " " + str[index + 18] + " " + str[index + 19] + " " + str[index + 17] + " "
+						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
+#else
+					v1 += str[index + 16] + " " + str[index + 17] + " " + str[index + 18] + " " + str[index + 19] + " "
+						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
+#endif
+
+					this->AddParameter("uaxis", v1);
+
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+					/*
+					v1 += str[index + 22]; v1 += " ";// [
+					v1 += str[index + 23]; v1 += " ";// a
+					v1 += str[index + 24]; v1 += " ";// b
+					v1 += str[index + 25]; v1 += " ";// c
+					v1 += str[index + 26]; v1 += " ";// d
+					v1 += str[index + 27]; v1 += " ";// ]
+					v1 += str[index + 30]; v1 += " ";// scalev
+					*/
+
+#ifdef SWAP_AXIS
+					v1 = str[index + 22] + " " + str[index + 24] + " " + str[index + 25] + " " + str[index + 23] + " "
+						+ str[index + 26] + " " + str[index + 27] + " " + str[index + 30];
+#else
+					v1 = str[index + 22] + " " + str[index + 23] + " " + str[index + 24] + " " + str[index + 25] + " "
+						+ str[index + 26] + " " + str[index + 27] + " " + str[index + 30];
+#endif
+
+					this->AddParameter("vaxis", v1);
+				}
+
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 28]; //rotate
+
+					this->AddParameter("rotate", v1);
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 29]; //rotate
+
+					this->AddParameter("usvale", v1);
+				}
+
+				{
+					std::string v1 = "";
+					//[0.0 0.0 0.0 0.0] 0.0
+
+					v1 += str[index + 30]; //rotate
+
+					this->AddParameter("vsvale", v1);
+				}
+
+
+
+				index += 30;
+
+
+
+				EndEntity();
+			}
+		}
+
 
 		if (m_brush) {
 			if (s == "(") {
@@ -163,7 +377,9 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 				}
 
 				this->AddParameter("material", str[index + 15]);
+				this->AddParameter("aggregate", "solid");
 
+/*
 				switch (str[index + 15][0]) {
 				case '#': this->AddParameter("aggregate", "liquid1"); break;
 				case '~': this->AddParameter("aggregate", "liquid2"); break;
@@ -173,30 +389,20 @@ unsigned long  HalfLife::StepStrings(const std::vector<std::string>& str, unsign
 				case '*': this->AddParameter("aggregate", "gas"); break;
 				default: this->AddParameter("aggregate", "solid"); break;
 				}
-
+*/
 
 				{
 					std::string v1 = "";
-					//[0.0 0.0 0.0 0.0] 0.0
-					/*
-					v1 += str[index + 16]; v1 += " ";// [
-					v1 += str[index + 17]; v1 += " ";// a
-					v1 += str[index + 18]; v1 += " ";// b
-					v1 += str[index + 19]; v1 += " ";// c
-					v1 += str[index + 20]; v1 += " ";// d
-					v1 += str[index + 21]; v1 += " ";// ]
-					v1 += str[index + 29]; v1 += " ";// scaleu
-					*/
 
 #ifdef SWAP_AXIS
-						v1 += str[index + 16] + " " + str[index + 18] + " " + str[index + 19] + " " + str[index + 17] + " "
+					v1 += str[index + 16] + " " + str[index + 18] + " " + str[index + 19] + " " + str[index + 17] + " "
 						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
-					#else
-						v1 += str[index + 16] + " " + str[index + 17] + " " + str[index + 18] + " " + str[index + 19] + " "
+#else
+					v1 += str[index + 16] + " " + str[index + 17] + " " + str[index + 18] + " " + str[index + 19] + " "
 						+ str[index + 20] + " " + str[index + 21] + " " + str[index + 29];
-					#endif
-					
-						this->AddParameter("uaxis", v1);
+#endif
+
+					this->AddParameter("uaxis", v1);
 
 				}
 

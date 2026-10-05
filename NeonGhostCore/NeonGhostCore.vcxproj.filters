@@ -393,6 +393,9 @@
     <ClInclude Include="WarpPortal.h">
       <Filter>Headerdateien\Spatial</Filter>
     </ClInclude>
+    <ClInclude Include="Portalcompile.h">
+      <Filter>Headerdateien\Spatial</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

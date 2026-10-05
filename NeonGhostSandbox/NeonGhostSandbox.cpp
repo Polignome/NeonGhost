@@ -183,8 +183,6 @@ inline void Render() {
 
 
 
-
-
     uint32_t medium=m_render_pipeline_3d.RenderWorld(m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap);
     
     m_rasterizer_3d.State().lmCorrection = &m_lmCorr;

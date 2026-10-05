@@ -95,9 +95,11 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
             }
         }
         
+
+        // vor MakeUnion:
+        auto origBrushes = brush;
+
         brush = ng::map::csg::MakeUnion(brush);
-
-
 
 
         std::vector<ng::bsp::BSPPolygon<T>> polys;

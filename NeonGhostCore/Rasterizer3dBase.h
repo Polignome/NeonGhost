@@ -248,7 +248,8 @@ namespace ng::renderer::rasterizer
         RASTER_DEPTH_WRITE = 1u << 5,
         RASTER_WRITE_NORMAL = 1u << 6,
         RASTER_WRITE_INDEX = 1u << 7,
-        RASTER_WOBBLE = 1 << 1u << 8 // Nur beim spanrenderer
+       // RASTER_WOBBLE = 1 << 1u << 8 // Nur beim spanrenderer
+        RASTER_DEPTH_CLEAR = 1 << 1u << 8
     };
 
     struct LightmapCorrection
@@ -548,6 +549,13 @@ namespace ng::renderer::rasterizer
         {
             if (st.depthFn(f.invW, target.depth[offset])) return;
             //  if ((float)f.invW <= target.depth[offset]) return; // schon etwas Naeheres da
+        }
+
+        // NEU: Portal-Bereich freigeben - kein Farbwert, nur Tiefe zuruecksetzen
+        if (st.flags & RASTER_DEPTH_CLEAR)
+        {
+            target.depth[offset] = 0.0f;    // "fern" = Clear-Wert deines Tiefenpuffers
+            return;
         }
 
         uint32_t color = st.colorFn(f, st);
