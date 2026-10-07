@@ -25,7 +25,8 @@ TEntity Parser::getParentEntity()
 
 void Parser::SetActiveEntityName(std::string name)
 {
-	if (current_entity != 0) current_entity->name = name;
+	if ((current_entity == 0) || (current_entity->name==name)) return;
+		current_entity->name = name;
 }
 
 std::string Parser::RemoveChars(const std::string& source, const std::string& chars) {
@@ -207,24 +208,41 @@ void Parser::SetError(std::string name)
 void Parser::BeginEntity(std::string name)
 {
 	TEntity entity;
-	
 
 	entity.parent = current_entity;
 	entity.name = name;
 
 	current_entity->sub_entry.push_back(entity);
 	current_entity = &current_entity->sub_entry[current_entity->sub_entry.size() - 1];
-
-
 }
 
 void Parser::AddParameter(std::string name, std::string value)
 {
-	//printf("Add Parameter %s   %s = %s\n", current_entity->name.c_str(), name.c_str(), value.c_str());
 	if (current_entity == nullptr) {
-		
 		return;
 	}
+
+
+
+	if (name == "origin")
+	{
+		std::istringstream iss(value);
+		double ox = 0.0, oy = 0.0, oz = 0.0;
+
+		if (iss >> ox >> oy >> oz)
+		{
+			std::ostringstream oss;
+			oss << oy << " " << oz << " " << ox; // dieselbe Permutation wie bei "plane"
+			value = oss.str();
+		}
+		else
+		{
+			printf("[HalfLife] 'origin' konnte nicht geparst werden: '%s'\n", value.c_str());
+		}
+	}
+
+
+
 
 	TEntityParam param;
 	param.name = name;

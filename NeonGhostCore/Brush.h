@@ -450,11 +450,42 @@ namespace ng {
 				return m_aggregate;
 			}
 
-			inline void SetAllFacesSolid() {
-				for (unsigned long i = 0; i < faces().size(); i++) faces()[i].aggregate() = BrushFace<T>::SOLID;
-				m_aggregate = BrushFace<T>::SOLID;
+			
 
+			inline void ApplyAggregateToPrims(uint32_t attrib)
+			{
+				auto apply = [&](std::vector<BrushPoly<T>>& prims)
+					{
+						for (auto& p : prims)
+						{
+							p.aggregate() = attrib;
+
+							if (attrib & BrushFace<T>::LIQUID)
+							{
+								if (attrib & BrushFace<T>::WATER)      p.SetNormalColor((T)0.5, (T)0.5, (T)1.0, (T)0.4);
+								else if (attrib & BrushFace<T>::LAVA)  p.SetNormalColor((T)1.0, (T)0.5, (T)0.5, (T)0.4);
+								else if (attrib & BrushFace<T>::ACCID) p.SetNormalColor((T)0.5, (T)1.0, (T)0.5, (T)0.4);
+							}
+							if (attrib & BrushFace<T>::GLASS)
+								p.SetNormalColor((T)1, (T)1, (T)0.5, (T)0.4);
+						}
+					};
+				apply(m_prims);
+				apply(m_temp_org_prims);
 			}
+
+			inline void SetAllFaces(uint32_t attrib)
+			{
+				for (auto& f : faces()) f.aggregate() = attrib;
+				m_aggregate = attrib;
+				ApplyAggregateToPrims(attrib);
+			}
+
+			inline void SetAllFacesSolid()
+			{
+				SetAllFaces(BrushFace<T>::SOLID);
+			}
+
 
 			inline const std::vector <BrushPoly<T>>& primitives() const { return m_prims; }
 			inline       std::vector <BrushPoly<T>>& primitives() { return m_prims; }

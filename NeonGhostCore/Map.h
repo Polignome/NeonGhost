@@ -20,6 +20,12 @@ namespace ng {
 			T radius = T(0);         // wird beim Baken aus brightness abgeleitet, s. unten
 		};
 
+
+
+
+
+
+
 		template<class T>
 		std::vector<ng::lightmap::LightSource<T>> ExtractLights(const std::vector<HalfLife::RawLight>& raw)
 		{
@@ -136,9 +142,14 @@ namespace ng {
 			inline       map::WorldSpawn<T>& GetWorldSpwan() { return m_worldspawn; }
 
 						
+			inline std::vector<Brush<T>> ExtractLiquidBrushes() {
+				std::vector<Brush< T>> data;
+				for (auto sb : GetWorldSpwan().GetNonSolidBrushes()) data.push_back(sb);
+				return data;
+			}
+
 			inline std::vector<Brush<T>> ExtractBrushes(bool solid = true) {
 				std::vector<Brush< T>> data;
-
 				for (auto sb : GetWorldSpwan().GetSolidBrushes()) data.push_back(sb);
 				return data;
 			}
@@ -150,23 +161,147 @@ namespace ng {
 			ng::map::texture::Wad3File GetTextureWad() { return m_wad; }
 
 
+
+
+
 		private:
 			WorldSpawn<T> m_worldspawn;
 			ng::map::texture::Wad3File m_wad;
 			std::map<std::string, int32_t> m_texturename_index;
 			std::vector<LightEntity<T>> m_lights;
+			
+			/*
+			inline void StepLiquidEntitys(TEntity entity,uint32_t attrib = BrushFace<T>::LIQUID) {
+				
+				
+				for (auto p : entity.parameter)
+				{
+					if (p.values.empty()) continue;
+					
+					//printf("[Map] Liquid-Entity Parameter: %s -->%i\n", p.name.c_str(), std::stoi(p.values[0]));
+					
+					if (p.name == "skin") {
+						switch (std::stoi(p.values[0]))
+						{
+						case -3: attrib |= BrushFace<T>::WATER; printf("[Map] Liquid-Entity mit Water-Flag\n");
+							break;
+						case -4:attrib |= BrushFace<T>::ACCID; printf("[Map] Liquid-Entity mit Acid-Flag\n");
+							break;
+						case -5:attrib |= BrushFace<T>::LAVA; printf("[Map] Liquid-Entity mit Lava-Flag\n");
+							break;
+						default:attrib |= BrushFace<T>::WATER; printf("[Map] Liquid-Entity mit Water-Flag\n");
+							break;
+						}
 
-			inline void StepEntitys(TEntity entity) {
-				if (entity.name == "world") {
-					for (auto p : entity.parameter)
+					}
+					if (p.name == "rendermode" && !p.values.empty()) {
+						switch (std::stoi(p.values[0]))
+						{
+						case 5: attrib |= BrushFace<T>::TRANS; printf("[Map] Liquid-Entity mit Transluzenz-Flag\n");
+							break;
+						}
+
+					}
+				}
+
+				if (entity.name == "brush") AddLiquidBrush(entity,attrib);
+				
+
+				for (auto e : entity.sub_entry) StepLiquidEntitys(e);
+
+			}
+			*/
+
+			inline void StepLiquidEntitys(
+				TEntity entity,
+				uint32_t attrib = BrushFace<T>::LIQUID)
+			{
+				for (auto p : entity.parameter)
+				{
+					if (p.values.empty())
+						continue;
+
+					if (p.name == "skin")
 					{
-						if (p.name == "wad") {
-							m_wad = texture::Wad3File(p.values[0]);
+						switch (std::stoi(p.values[0]))
+						{
+						case -3:
+							attrib |= BrushFace<T>::WATER;
+							printf("[Map] Liquid-Entity mit Water-Flag\n");
+							break;
+
+						case -4:
+							attrib |= BrushFace<T>::ACCID;
+							printf("[Map] Liquid-Entity mit Acid-Flag\n");
+							break;
+
+						case -5:
+							attrib |= BrushFace<T>::LAVA;
+							printf("[Map] Liquid-Entity mit Lava-Flag\n");
+							break;
+
+						default:
+							attrib |= BrushFace<T>::WATER;
+							printf("[Map] Liquid-Entity mit Water-Flag\n");
+							break;
+						}
+					}
+
+					if (p.name == "rendermode")
+					{
+						switch (std::stoi(p.values[0]))
+						{
+						case 5:
+							attrib |= BrushFace<T>::TRANS;
+							printf("[Map] Liquid-Entity mit Transluzenz-Flag\n");
+							break;
 						}
 					}
 				}
 
-				if (entity.name == "solid") AddBrush(entity);
+				if (entity.name == "brush")
+				{
+					AddLiquidBrush(entity, attrib);
+					return;
+				}
+
+				// WICHTIG:
+				// Die bereits ermittelten Flags weiterreichen!
+				for (auto e : entity.sub_entry)
+					StepLiquidEntitys(e, attrib);
+			}
+			inline void StepWorldEntitys(TEntity entity) {
+				for (auto p : entity.parameter)
+				{
+					if (p.name == "wad" && !p.values.empty()) {
+						try {
+							m_wad = texture::Wad3File(p.values[0]);
+						}
+						catch (const std::runtime_error& error) {
+							printf("[Map] Fehler beim Laden der WAD-Datei: %s\n", error.what());
+						}
+					}
+				}
+
+				if (entity.name == "brush") AddSolidBrush(entity);
+
+				for (auto e : entity.sub_entry) StepWorldEntitys(e);
+
+
+			}
+
+
+			inline void StepEntitys(TEntity entity) {
+
+				if (entity.name == "world") {
+					StepWorldEntitys(entity); 
+					return;
+				}
+				if (entity.name == "liquid") {
+					StepLiquidEntitys(entity);
+					return;
+				}
+
 
 				// NEU: Licht-Entities einsammeln
 				if (entity.name == "light" ||
@@ -174,6 +309,7 @@ namespace ng {
 					entity.name == "light_environment")
 				{
 					AddLight(entity);
+					return;
 				}
 
 				for (auto e : entity.sub_entry) StepEntitys(e);
@@ -245,10 +381,79 @@ namespace ng {
 			}
 			
 
-			inline void AddBrush(TEntity entity)
+
+			
+			inline void PrintBrushAttributes(uint32_t attrib)
 			{
+				printf("Brush Attributes: 0x%08X", attrib);
+
+				if (attrib == 0)
+				{
+					printf(" -> NONE\n");
+					return;
+				}
+
+				printf(" -> ");
+
+				bool first = true;
+
+				auto printFlag = [&](const char* name, uint32_t flag)
+					{
+						if (attrib & flag)
+						{
+							if (!first)
+								printf(" | ");
+
+							printf("%s", name);
+							first = false;
+						}
+					};
+
+				printFlag("SOLID", BrushFace<T>::SOLID);
+				printFlag("LIQUID", BrushFace<T>::LIQUID);
+				printFlag("WATER", BrushFace<T>::WATER);
+				printFlag("LAVA", BrushFace<T>::LAVA);
+				printFlag("ACCID", BrushFace<T>::ACCID);
+				printFlag("GLASS", BrushFace<T>::GLASS);
+				printFlag("GAS", BrushFace<T>::GAS);
+				printFlag("TRANS", BrushFace<T>::TRANS);
+				printFlag("SOLID_NO_SPLITTER", BrushFace<T>::SOLID_NO_SPLITTER);
+				printFlag("EMPTY", BrushFace<T>::EMPTY);
+				printFlag("WRONG", BrushFace<T>::WRONG);
 				
-				if (entity.name != "solid") return;
+				printf("\n");
+			}
+
+
+			inline void AddLiquidBrush(TEntity entity,const uint32_t attrib)
+			{
+					if (entity.name != "brush") return;
+				Brush<T> brush;
+				
+
+				for (unsigned int i = 0; i < entity.sub_entry.size(); i++)
+				{
+					if (entity.sub_entry[i].name == "side") AddBrushFace(entity.sub_entry[i], brush);
+				}
+
+				brush.SetAllFaces(attrib);
+					m_worldspawn.AddNonSolidBrush(brush);
+
+				printf("AddLiquidBrush ATTRIB Soll:");
+				PrintBrushAttributes(attrib);
+				printf("AddLiquidBrush ATTRIB Ist:");
+
+				PrintBrushAttributes(brush.CheckAggregate());
+
+
+			}
+
+
+
+			inline void AddSolidBrush(TEntity entity)
+			{
+
+				if (entity.name != "brush") return;
 				Brush<T> brush;
 
 
@@ -256,15 +461,9 @@ namespace ng {
 				{
 					if (entity.sub_entry[i].name == "side") AddBrushFace(entity.sub_entry[i], brush);
 				}
-				unsigned long aggregate = brush.CheckAggregate();
-				if (aggregate == BrushFace<T>::WRONG)
-				{
-					
-					brush.SetAllFacesSolid();
-					aggregate = BrushFace<T>::SOLID;
-				}
-				if (aggregate == BrushFace<T>::SOLID) m_worldspawn.AddSolidBrush(brush);
-				else m_worldspawn.AddSolidBrush(brush);
+				brush.SetAllFacesSolid();
+                m_worldspawn.AddSolidBrush(brush);
+				
 			}
 
 			inline void AddBrushFace(TEntity entity, Brush<T>& brush)
@@ -318,32 +517,7 @@ namespace ng {
 					{
 						GetEntity<T>(p, ray);
 					}
-
-					if (p.name == "aggregate")
-					{
-						std::string name;
-						GetEntity(p, name);
-						if (name == "liquid1") {
-							ray.aggregate() = BrushFace<T>::TRANS | BrushFace<T>::WATER | BrushFace<T>::LIQUID;
-						}
-						if (name == "liquid2") {
-							ray.aggregate() = BrushFace<T>::TRANS | BrushFace<T>::LAVA | BrushFace<T>::LIQUID;
-						}
-						if (name == "liquid3") {
-							ray.aggregate() = BrushFace<T>::TRANS | BrushFace<T>::ACCID | BrushFace<T>::LIQUID;
-						}
-						if (name == "glass") {
-							ray.aggregate() = BrushFace<T>::GLASS | BrushFace<T>::TRANS;
-						}
-						if (name == "glas") {
-							ray.aggregate() = BrushFace<T>::GAS | BrushFace<T>::TRANS;
-						}
-						if (name == "solid_no_splitter") {
-							ray.aggregate() = BrushFace<T>::SOLID;
-							ray.no_splitter() = true;
-						}
-
-					}
+					
 				}
 
 				brush.AddFacePlane(ray);

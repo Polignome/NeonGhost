@@ -22,7 +22,8 @@ namespace ng {
 			int load(const std::string& filename, const unsigned long flags = 0);
 			int save(const std::string& filename, const unsigned long flags = 0);
 		private:
-			unsigned long StepStrings(const std::vector<std::string>& str, unsigned long index = 0);
+			unsigned long StepStrings(const std::vector<std::string>& str,  long index = 0);
+			long ReadBrushFace(const std::vector<std::string>& str, long index,  bool liquit = false);
 		};
 	}
 }

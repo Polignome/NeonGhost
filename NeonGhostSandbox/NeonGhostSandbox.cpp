@@ -34,7 +34,6 @@
 #pragma comment(lib, "NeonGhostCore.lib")
 #pragma comment(lib, "FreeImage.lib")
 
-
 NG_BIND_MANAGER
 
 #define NG_USE_STATIC_MESH_ONLY
@@ -57,9 +56,6 @@ static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT
 
 // static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
 
-// 
-// 
-// 
 // static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
 //static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
 
@@ -120,7 +116,6 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 
 
 
-
 void LoadMapReady(bool error, BspScene<NG_MATH_FLOAT>&& scene) {
     if (error) {
         std::cout << "Error loading map" << std::endl;
@@ -145,8 +140,7 @@ inline void Render() {
 //    blur->SetStrength(6.0f);   // z.B. fuer Pause-Menue oder Unterwasser
     
     // erwartet: ≈ (0,0,0,1)
-
-    static bool first_time = true;
+     static bool first_time = true;
     if (first_time) {
         first_time = false;
         mgr.SetSize(m_rasterizer_3d.Width(), m_rasterizer_3d.Height());
@@ -154,8 +148,8 @@ inline void Render() {
         mgr.BindDepth(m_rasterizer_3d.GetDepthBuffer().GetRawBuffer());
         m_cam_old_pos =  m_camera.position();
     }
-	             
-    
+
+
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
     m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
@@ -171,12 +165,9 @@ inline void Render() {
     m_render_pipeline_3d.ProjectionMatrix() = m_camera.ProjectionMatrix();
     m_render_pipeline_3d.SetCamera(m_camera);
 
-
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
-
-    
-    
+         
     
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
@@ -196,8 +187,7 @@ inline void Render() {
 
 
     m_render_pipeline_3d.End();
-    
-   
+       
 
 //    if (m_use_after_fx)mgr.Apply(totalTime);
     if (medium & ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID) mgr.Apply(totalTime);

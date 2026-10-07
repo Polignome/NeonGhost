@@ -68,10 +68,10 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
     ng::map::HalfLife hl_map;
     if (hl_map.load(map_filename) == ng::map::Parser::NO_PARSER_ERROR) {
-
+    //    hl_map.DebugPrintEntities();
         ng::map::Data<T> data;
         data = hl_map;
-
+        
         ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();;
 
         
@@ -83,22 +83,14 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
 
         auto brush = data.ExtractBrushes();
-        std::vector< ng::map::Brush<T>> liquit_brushes;
-        for (auto b : brush) {
-            
-            for (auto f: b.faces()) {
-                if (f.aggregate() & ng::map::BrushFace<T>::LIQUID) {
-                    liquit_brushes.push_back(b);
-                    break;
-                }
-                
-            }
-        }
+        std::vector< ng::map::Brush<T>> liquit_brushes= data.ExtractLiquidBrushes();
+		printf("[MapCompiler] Extracted %zu solid brushes and %zu liquid brushes\n", brush.size(), liquit_brushes.size());
         
-
-        // vor MakeUnion:
+        
+        
+        
+        brush.insert(brush.end(), liquit_brushes.begin(), liquit_brushes.end());
         auto origBrushes = brush;
-
         brush = ng::map::csg::MakeUnion(brush);
 
 
@@ -145,7 +137,8 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
             }
         }
 
-
+		printf("[MapCompiler] Extracted %zu solid faces and %zu liquid faces\n", soild_faces.size(), liquit_faces.size());
+        
         auto aabb = ng::bsp::ComputeSceneBounds(polys);
         auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (T)100);
 

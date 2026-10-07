@@ -3,8 +3,10 @@
 
 #include <vector>
 #include <string>
+#include <functional>
 #include "Matrix.h"
 #include "RayPlaneLine.h"
+#include <map>
 
 
 namespace ng {
@@ -57,6 +59,14 @@ namespace ng {
 				return last_error;
 
 			}
+
+			inline void DebugPrintEntities() {
+				printf("############################## DebugPrintEntities ############################## \n");
+				DebugPrintEntities(m_entitys);
+			}
+
+			
+
 		protected:
 			typedef std::vector<std::string> TMapLine;
 			std::vector<TMapLine> m_map;
@@ -64,6 +74,23 @@ namespace ng {
 			void BeginEntity(std::string name);
 			void AddParameter(std::string name, std::string value);
 			void EndEntity();
+
+
+			inline void DebugPrintEntities(const TEntity  &entity,std::string space="") {
+				
+				printf("%s Entityname %s\n", space.c_str(), entity.name.c_str());
+
+				for (auto e : entity.parameter) {
+					printf("%s   Parameter %s = ", space.c_str(), e.name.c_str());
+					for (auto v : e.values) {
+						printf("%s ", v.c_str());
+					}
+					printf("\n");
+				}
+				for (auto s: entity.sub_entry)
+					DebugPrintEntities(s, space + "  "	);
+			}
+
 
 			int parse(const std::string& filename, const unsigned long flags = 0);
 

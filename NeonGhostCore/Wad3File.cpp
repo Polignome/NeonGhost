@@ -33,6 +33,7 @@ Wad3File::Wad3File(const std::vector<uint8_t>& fileData)
 
 Wad3File::Wad3File(const std::string& path)
 {
+    
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
         throw std::runtime_error("WAD3-Datei konnte nicht geoeffnet werden: " + path);
