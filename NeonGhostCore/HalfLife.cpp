@@ -69,12 +69,12 @@ long HalfLife::ReadBrushFace(
     // ------------------------------------------------------------
 
     AddParameter("material", str[index + 15]);
-
+    /*
     if (liquit)
         AddParameter("aggregate", "liquit");
     else
         AddParameter("aggregate", "solid");
-
+    */
     // ------------------------------------------------------------
     // U-Axis
     // ------------------------------------------------------------
@@ -211,7 +211,12 @@ unsigned long HalfLife::StepStrings(
                 else if (value == "func_water")
                 {
                     SetActiveEntityName("liquid");
-                
+
+                }
+                else if (value == "func_portal")
+                {
+                    SetActiveEntityName("portal");
+
                 }
                 else if (value == "light")
                 {
@@ -233,83 +238,7 @@ unsigned long HalfLife::StepStrings(
             continue;
         }
 
-        // --------------------------------------------------------
-        // Brush Face
-        // --------------------------------------------------------
-        /*
-        if (line == "(")
-        {
-            auto& active = getActiveEntity();
-
-            if (active.parent == nullptr)
-            {
-                SetError("BrushFace ohne Parent");
-                return -1;
-            }
-
-            std::string parentName = active.parent->name;
-
-            if (parentName != "world" &&
-                parentName != "liquit")
-            {
-                SetError(
-                    "BrushFace ausserhalb von world/liquit");
-                return -1;
-            }
-
-            // Der aktuelle Block ist der Brush
-            SetActiveEntityName("brush");
-
-            bool isLiquit = (parentName == "liquit");
-
-            index = ReadBrushFace(
-                str,
-                index,
-                isLiquit);
-
-            if (index < 0)
-                return -1;
-
-            continue;
-        }
-        */
-        /*
-        if (line == "(")
-        {
-            auto& active = getActiveEntity();
-
-            if (active.parent == nullptr)
-            {
-                SetError("BrushFace ohne Parent");
-                return -1;
-            }
-
-            std::string parentName = active.parent->name;
-
-            if (parentName != "world" &&
-                parentName != "liquid")
-            {
-                SetError(
-                    "BrushFace ausserhalb von world/liquid");
-                return -1;
-            }
-
-            // Der aktuelle Block ist der Brush
-            SetActiveEntityName("brush");
-
-            bool isLiquid = (parentName == "liquid");
-
-            index = ReadBrushFace(
-                str,
-                index,
-                isLiquid);
-
-            if (index < 0)
-                return -1;
-
-            continue;
-        }*/
-
+      
         if (line == "(")
         {
             auto& active = getActiveEntity();

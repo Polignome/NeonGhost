@@ -83,8 +83,10 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
 
         auto brush = data.ExtractBrushes();
-        std::vector< ng::map::Brush<T>> liquit_brushes= data.ExtractLiquidBrushes();
-		printf("[MapCompiler] Extracted %zu solid brushes and %zu liquid brushes\n", brush.size(), liquit_brushes.size());
+        auto liquit_brushes = data.ExtractLiquidBrushes();
+        auto portal_brushes = data.ExtractPortalBrushes();
+
+		printf("[MapCompiler] Extracted %zu solid brushes, %zu liquid brushes and %zu portal brushes\n", brush.size(), liquit_brushes.size(), portal_brushes.size());
         
         
         
@@ -162,9 +164,12 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         lmOpt.startAtlasSize = std::max(1024, ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
         auto lights = ng::map::ToLightSources<T>(data.GetLights());
 
-        if (lmOpt.buildDirectLight)
+        if (lmOpt.buildDirectLight || radOpt.buildDirectRadiosity)
         {
-            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, scene.m_bsp, lights, lmOpt);
+            auto ll = lights;
+			if (!lmOpt.buildDirectLight)  ll.clear();
+
+            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, scene.m_bsp, ll  , lmOpt);
             if (atlas)
             {
                 if (radOpt.buildDirectRadiosity)

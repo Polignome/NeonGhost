@@ -34,6 +34,7 @@
 #pragma comment(lib, "NeonGhostCore.lib")
 #pragma comment(lib, "FreeImage.lib")
 
+
 NG_BIND_MANAGER
 
 #define NG_USE_STATIC_MESH_ONLY
@@ -326,6 +327,42 @@ void InitStuff() {
     
     // einmalig
     m_player.Init(ng::math::Matrix<3, 1, NG_MATH_FLOAT>(0, 0, 0), /*eyeHeight*/ 28);
+
+
+
+    // compiler settings
+    lmOpt.buildDirectLight = m_build_lightmaps;
+    lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
+    lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
+    lmOpt.maxAtlasSize = 8192;
+    lmOpt.kAmbientFloor = 20;
+    lmOpt.onlyCoveredTexels = true;
+    lmOpt.coverageMargin = 1.0;
+
+
+    radOpt.buildDirectRadiosity = m_build_radiosity;
+    radOpt.bounces = 4;
+    radOpt.samplesPerPatch = 32;
+    radOpt.blockSize = 2;
+    radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
+    radOpt.albedoMax = 0.85;
+    radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
+    radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
+    radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
+    radOpt.indirectGain = 20.0;
+
+    po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
+    po.verbose = true;
+    po.skipVoidLeaves = true;
+    po.requirePolygonsInComponent = true;
+    po.minPortalArea = 64;
+
+
+
+
+    vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
+
+
 }
 
 
@@ -335,8 +372,6 @@ int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
     static bool m_load_obj = false;
     static bool m_load_hlm = false;
-    static bool m_build_lightmaps = false;
-    static bool m_build_radiosity = false;
     
     
     if (InitImGui()) return 1;
@@ -455,8 +490,10 @@ int main(int argc, char** argv) {
 
             if (ImGui::BeginMenu("Compiler")) {
                 if (ImGui::MenuItem("Lighmaps", 0, m_build_lightmaps)) m_build_lightmaps = !m_build_lightmaps;
-                if (!m_build_lightmaps)m_build_radiosity = false;
-                if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity, m_build_lightmaps)) m_build_radiosity = !m_build_radiosity;
+                
+                if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity)) m_build_radiosity = !m_build_radiosity;
+				ImGui::Separator();
+				if (ImGui::MenuItem("Compiler Setup")) m_compiler_setting_window = true;
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Tools")) {
@@ -514,6 +551,8 @@ int main(int argc, char** argv) {
                         ImGui::EndMainMenuBar();
             
         }
+
+
                         
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
@@ -529,43 +568,12 @@ int main(int argc, char** argv) {
         if (m_resource_window_visible)ResourcemanagerWindow(m_resource_window_visible);
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
-
+        if (m_compiler_setting_window) RenderCompilerSetupWindow(m_compiler_setting_window, radOpt, lmOpt, vo, po);
         if (m_load_hlm & !is_loading) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
 			
 
-                ng::lightmap::LightmapOptions lmOpt;
-                lmOpt.buildDirectLight = m_build_lightmaps;
-                lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
-                lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
-                lmOpt.maxAtlasSize = 8192;
-                lmOpt.kAmbientFloor = 20;
-                lmOpt.onlyCoveredTexels = true;
-                lmOpt.coverageMargin = 1.0;
-
-                ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
-                radOpt.buildDirectRadiosity = m_build_radiosity;
-                radOpt.bounces = 4;
-                radOpt.samplesPerPatch = 32;
-                radOpt.blockSize = 2;
-                radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
-                radOpt.albedoMax = 0.85;
-                radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
-                radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
-                radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
-                radOpt.indirectGain = 20.0;
-                
-                ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
-                po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
-                po.verbose = true;
-                po.skipVoidLeaves = true;
-                po.requirePolygonsInComponent = true;
-                po.minPortalArea = 64;
-               
-
-                ng::bsp::VisCellOptions<NG_MATH_FLOAT> vo;
-                vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
 
                 //m_map_compiler.setCompleteCallback(LoadMapReady);
                 //m_map_compiler.start(filename,po,vo, lmOpt,radOpt );

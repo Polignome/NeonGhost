@@ -40,8 +40,10 @@ namespace ng {
 				GAS = 1 << 7,
 				TRANS = 1 << 8,
 				SOLID_NO_SPLITTER = 1 << 9,
-				EMPTY = 1 << 10,
-				WRONG = 1 << 11
+				PORTAL_FACE = (1 << 10),
+				PORTAL_BRUSH = (1 << 10),
+				EMPTY = 1 << 11,
+				WRONG = 1 << 12
 			};
 
 
@@ -394,12 +396,22 @@ namespace ng {
 		}
 
 
+		struct PortalBrushSettings
+		{
+			bool visible = true;	
+			bool translucent = true;
+			bool teleport = true;
+			uint32_t id = 0;
+			uint32_t linked_id = 0;
+		};
+
+
 		template <class T >
 		class Brush : public bounding::AABBox<3, T>
 		{
 		public:
 
-
+			
 
 
 			inline std::string toStr() {
@@ -410,9 +422,14 @@ namespace ng {
 			}
 
 
+			bool isPortal() {
+				return m_aggregate & BrushFace<T>::PORTAL_BRUSH;
+			}
 
 
-			Brush(void) :m_aggregate(-1)
+
+
+			Brush() :m_aggregate(-1)
 			{
 			}
 
@@ -492,6 +509,16 @@ namespace ng {
 
 			inline const std::vector <BrushFace<T>>& faces() const { return m_faces; }
 			inline       std::vector <BrushFace<T>>& faces() { return m_faces; }
+
+
+			inline PortalBrushSettings& PortalSetting() {
+				return m_portal_setting;
+			}
+
+
+			inline const PortalBrushSettings& PortalSetting() const {
+				return m_portal_setting;
+			}
 
 
 
@@ -778,11 +805,12 @@ namespace ng {
 			std::vector <BrushPoly<T>> m_temp_org_prims;
 			std::vector <BrushPoly<T>> m_prims;
 			std::vector <BrushFace<T>>  m_faces;
+			PortalBrushSettings m_portal_setting;
 
 			csg::Tree<T> m_tree;
 
 			long m_aggregate;
-
+			
 
 
 			void buildFaces()

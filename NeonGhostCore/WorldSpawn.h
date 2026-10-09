@@ -34,10 +34,19 @@ namespace ng {
 				m_non_solid_brushs.push_back(brush);
 
 			}
+			inline void AddPortalBrush(const Brush<T>& brush) {
+				Brush<T> b = brush;
+
+				m_portal_brushs.push_back(brush);
+
+			}
 
 
 			inline       std::vector<Brush<T>>& GetSolidBrushes() { return m_solid_brushs; }
 			inline const std::vector<Brush<T>>& GetSolidBrushes()	const { return m_solid_brushs; }
+
+			inline       std::vector<Brush<T>>& GetPortalBrushes() { return m_portal_brushs; }
+			inline const std::vector<Brush<T>>& GetPortaldBrushes()	const { return m_portal_brushs; }
 
 			inline       std::vector<Brush<T>>& GetNonSolidBrushes() { return m_non_solid_brushs; }
 			inline const std::vector<Brush<T>>& GetNonSolidBrushes()	const { return m_non_solid_brushs; }
@@ -49,6 +58,7 @@ namespace ng {
 			inline const std::string& wadfilename() const { return m_wad_file; }
 		private:
 
+			std::vector<Brush<T>> m_portal_brushs;
 			std::vector<Brush<T>> m_solid_brushs;
 			std::vector<Brush<T>> m_non_solid_brushs;
 			std::string m_wad_file = "";

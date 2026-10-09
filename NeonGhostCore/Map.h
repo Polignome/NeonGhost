@@ -148,6 +148,13 @@ namespace ng {
 				return data;
 			}
 
+			inline std::vector<Brush<T>> ExtractPortalBrushes() {
+					std::vector<Brush< T>> data;
+					for (auto sb : GetWorldSpwan().GetPortaldBrushes()) data.push_back(sb);
+					return data;
+
+			}
+
 			inline std::vector<Brush<T>> ExtractBrushes(bool solid = true) {
 				std::vector<Brush< T>> data;
 				for (auto sb : GetWorldSpwan().GetSolidBrushes()) data.push_back(sb);
@@ -170,47 +177,7 @@ namespace ng {
 			std::map<std::string, int32_t> m_texturename_index;
 			std::vector<LightEntity<T>> m_lights;
 			
-			/*
-			inline void StepLiquidEntitys(TEntity entity,uint32_t attrib = BrushFace<T>::LIQUID) {
-				
-				
-				for (auto p : entity.parameter)
-				{
-					if (p.values.empty()) continue;
-					
-					//printf("[Map] Liquid-Entity Parameter: %s -->%i\n", p.name.c_str(), std::stoi(p.values[0]));
-					
-					if (p.name == "skin") {
-						switch (std::stoi(p.values[0]))
-						{
-						case -3: attrib |= BrushFace<T>::WATER; printf("[Map] Liquid-Entity mit Water-Flag\n");
-							break;
-						case -4:attrib |= BrushFace<T>::ACCID; printf("[Map] Liquid-Entity mit Acid-Flag\n");
-							break;
-						case -5:attrib |= BrushFace<T>::LAVA; printf("[Map] Liquid-Entity mit Lava-Flag\n");
-							break;
-						default:attrib |= BrushFace<T>::WATER; printf("[Map] Liquid-Entity mit Water-Flag\n");
-							break;
-						}
-
-					}
-					if (p.name == "rendermode" && !p.values.empty()) {
-						switch (std::stoi(p.values[0]))
-						{
-						case 5: attrib |= BrushFace<T>::TRANS; printf("[Map] Liquid-Entity mit Transluzenz-Flag\n");
-							break;
-						}
-
-					}
-				}
-
-				if (entity.name == "brush") AddLiquidBrush(entity,attrib);
-				
-
-				for (auto e : entity.sub_entry) StepLiquidEntitys(e);
-
-			}
-			*/
+			
 
 			inline void StepLiquidEntitys(
 				TEntity entity,
@@ -270,6 +237,65 @@ namespace ng {
 				for (auto e : entity.sub_entry)
 					StepLiquidEntitys(e, attrib);
 			}
+
+
+			inline void StepPortalEntitys(
+				TEntity entity,
+				PortalBrushSettings settings= PortalBrushSettings())
+			{
+				
+				for (auto p : entity.parameter)
+				{
+					if (p.values.empty())
+						continue;
+					uint32_t v = std::stoi(p.values[0]);
+					bool on = v > 0;
+
+					if (p.name == "brush_mode")
+					{
+						settings.visible = on;
+					}
+
+					if (p.name == "face_render")
+					{
+					
+					   settings.translucent = on;
+					}
+					if (p.name == "linked_to_id")
+					{
+						settings.linked_id = v;
+					}
+					if (p.name == "portal_id")
+					{
+						settings.id = v;
+					}
+					if (p.name == "spawnflags")
+					{
+						
+						settings.teleport = on;
+					}
+				}
+				bool valid = true;
+				if (settings.linked_id == settings.id) {
+					valid = false;
+					printf("[Map] Portal-Brush ist nicht gültig\n");
+				}
+
+				if (entity.name == "brush" && valid)
+				{
+					AddPortalBrush(entity);
+					return;
+				}
+
+				// WICHTIG:
+				// Die bereits ermittelten Flags weiterreichen!
+				for (auto e : entity.sub_entry)
+					StepPortalEntitys(e, settings);
+			}
+
+
+
+
 			inline void StepWorldEntitys(TEntity entity) {
 				for (auto p : entity.parameter)
 				{
@@ -299,6 +325,10 @@ namespace ng {
 				}
 				if (entity.name == "liquid") {
 					StepLiquidEntitys(entity);
+					return;
+				}
+				if (entity.name == "portal") {
+					StepPortalEntitys(entity);
 					return;
 				}
 
@@ -425,11 +455,32 @@ namespace ng {
 			}
 
 
-			inline void AddLiquidBrush(TEntity entity,const uint32_t attrib)
+			inline void AddPortalBrush(TEntity entity)
 			{
-					if (entity.name != "brush") return;
+				if (entity.name != "brush") return;
 				Brush<T> brush;
-				
+
+
+				for (unsigned int i = 0; i < entity.sub_entry.size(); i++)
+				{
+					if (entity.sub_entry[i].name == "side") AddBrushFace(entity.sub_entry[i], brush);
+				}
+
+				m_worldspawn.AddPortalBrush(brush);
+
+
+			
+
+
+			}
+
+
+
+			inline void AddLiquidBrush(TEntity entity, const uint32_t attrib)
+			{
+				if (entity.name != "brush") return;
+				Brush<T> brush;
+
 
 				for (unsigned int i = 0; i < entity.sub_entry.size(); i++)
 				{
@@ -437,13 +488,13 @@ namespace ng {
 				}
 
 				brush.SetAllFaces(attrib);
-					m_worldspawn.AddNonSolidBrush(brush);
+				m_worldspawn.AddNonSolidBrush(brush);
 
-				printf("AddLiquidBrush ATTRIB Soll:");
-				PrintBrushAttributes(attrib);
-				printf("AddLiquidBrush ATTRIB Ist:");
+				//				printf("AddLiquidBrush ATTRIB Soll:");
+//				PrintBrushAttributes(attrib);
+//				printf("AddLiquidBrush ATTRIB Ist:");
 
-				PrintBrushAttributes(brush.CheckAggregate());
+//				PrintBrushAttributes(brush.CheckAggregate());
 
 
 			}

@@ -23,6 +23,7 @@ static ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 static bool m_exit_program = false;
 static bool m_tools_font_window = false;
 static bool m_view_render_window = false;
+static bool m_compiler_setting_window = false;
 static bool m_view_render_fullscreen = true;
 static bool m_masked_occlusion_buffer_window_visible = false;
 static bool m_HZB_window_visible = false;
@@ -41,6 +42,8 @@ static bool m_use_collision = false;
 static bool m_use_lightmap = true;
 static size_t m_num_visible_leafs = 0;
 static size_t m_num_bsp_leafs = 0;
+static bool m_build_lightmaps = false;
+static bool m_build_radiosity = false;
 
 static float m_max_fps = 0;
 static std::vector<float> m_fps_count;
@@ -55,10 +58,12 @@ static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
 // Member der Anwendung
 static ng::renderer::rasterizer::LightmapCorrection m_lmCorr;
-
-
-
 static BspScene<NG_MATH_FLOAT> m_bsp_scene;
+
+static ng::lightmap::LightmapOptions lmOpt;
+static ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
+static ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
+static ng::bsp::VisCellOptions<NG_MATH_FLOAT> vo;
 
 
 
@@ -1664,3 +1669,343 @@ inline void RenderWindow(bool& m_software_renderer_visible)
     }
 }
 
+
+
+
+template<class T>
+inline void DrawLightingVisSetup(
+    ng::lightmap::RadiosityOptions<T>& radiosity,
+    ng::lightmap::LightmapOptions& lightmap,
+    ng::bsp::VisCellOptions<T>& visCell,
+    ng::bsp::PVSOptions<T>& pvs)
+{
+    // ================================================================
+    // RADIOSITY
+    // ================================================================
+    if (ImGui::CollapsingHeader("Radiosity", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox(
+            "Build Direct Radiosity",
+            &radiosity.buildDirectRadiosity);
+
+        ImGui::InputInt(
+            "Bounces",
+            &radiosity.bounces);
+
+        ImGui::InputInt(
+            "Samples per Patch",
+            &radiosity.samplesPerPatch);
+
+        ImGui::InputDouble(
+            "Max Ray Distance",
+            &radiosity.maxRayDistance,
+            64.0,
+            512.0,
+            "%.3f");
+
+        ImGui::InputDouble(
+            "Epsilon",
+            &radiosity.epsilon,
+            0.001,
+            0.01,
+            "%.6f");
+
+        int seed = static_cast<int>(radiosity.randomSeed);
+
+        if (ImGui::InputInt(
+            "Random Seed",
+            &seed))
+        {
+            if (seed < 0)
+                seed = 0;
+
+            radiosity.randomSeed =
+                static_cast<unsigned int>(seed);
+        }
+
+        ImGui::InputDouble(
+            "Ambient Floor",
+            &radiosity.ambientFloor,
+            0.01,
+            0.1,
+            "%.4f");
+
+        ImGui::InputDouble(
+            "Indirect Gain",
+            &radiosity.indirectGain,
+            0.1,
+            1.0,
+            "%.3f");
+
+        ImGui::InputInt(
+            "Block Size",
+            &radiosity.blockSize);
+
+        ImGui::InputDouble(
+            "Albedo Min",
+            &radiosity.albedoMin,
+            0.01,
+            0.1,
+            "%.3f");
+
+        ImGui::InputDouble(
+            "Albedo Max",
+            &radiosity.albedoMax,
+            0.01,
+            0.1,
+            "%.3f");
+
+        // textureEmissionStrength kann T=float/double sein
+        double emission =
+            static_cast<double>(radiosity.textureEmissionStrength);
+
+        if (ImGui::InputDouble(
+            "Texture Emission Strength",
+            &emission,
+            0.01,
+            0.1,
+            "%.3f"))
+        {
+            radiosity.textureEmissionStrength =
+                static_cast<T>(emission);
+        }
+    }
+
+
+    // ================================================================
+    // LIGHTMAP
+    // ================================================================
+    if (ImGui::CollapsingHeader("Lightmap", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox(
+            "Build Direct Light",
+            &lightmap.buildDirectLight);
+
+        ImGui::InputInt(
+            "Start Atlas Size",
+            &lightmap.startAtlasSize);
+
+        ImGui::InputInt(
+            "Max Atlas Size",
+            &lightmap.maxAtlasSize);
+
+        ImGui::InputDouble(
+            "Texel Density",
+            &lightmap.texelDensity,
+            0.5,
+            2.0,
+            "%.3f");
+
+        ImGui::InputInt(
+            "Max Lightmap Size",
+            &lightmap.maxLightmapSize);
+
+        ImGui::InputDouble(
+            "Epsilon",
+            &lightmap.epsilon,
+            0.001,
+            0.01,
+            "%.6f");
+
+        ImGui::InputDouble(
+            "Pack Efficiency",
+            &lightmap.packEfficiency,
+            0.01,
+            0.05,
+            "%.3f");
+
+        ImGui::InputInt(
+            "Ambient Floor",
+            &lightmap.kAmbientFloor);
+
+        ImGui::Checkbox(
+            "Only Covered Texels",
+            &lightmap.onlyCoveredTexels);
+
+        ImGui::InputDouble(
+            "Coverage Margin",
+            &lightmap.coverageMargin,
+            0.1,
+            0.5,
+            "%.3f");
+    }
+
+
+    // ================================================================
+    // VIS CELL
+    // ================================================================
+    if (ImGui::CollapsingHeader("Vis Cells", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        double minPlaneArea =
+            static_cast<double>(visCell.minPlaneArea);
+
+        if (ImGui::InputDouble(
+            "Min Plane Area",
+            &minPlaneArea,
+            64.0,
+            512.0,
+            "%.3f"))
+        {
+            visCell.minPlaneArea =
+                static_cast<T>(minPlaneArea);
+        }
+
+        int maxStructuralPlanes =
+            static_cast<int>(visCell.maxStructuralPlanes);
+
+        if (ImGui::InputInt(
+            "Max Structural Planes",
+            &maxStructuralPlanes))
+        {
+            if (maxStructuralPlanes < 0)
+                maxStructuralPlanes = 0;
+
+            visCell.maxStructuralPlanes =
+                static_cast<size_t>(maxStructuralPlanes);
+        }
+
+        ImGui::Checkbox(
+            "Merge Small Cells",
+            &visCell.mergeSmallCells);
+
+        double maxOccluderArea =
+            static_cast<double>(visCell.maxOccluderArea);
+
+        if (ImGui::InputDouble(
+            "Max Occluder Area",
+            &maxOccluderArea,
+            64.0,
+            512.0,
+            "%.3f"))
+        {
+            visCell.maxOccluderArea =
+                static_cast<T>(maxOccluderArea);
+        }
+
+        double epsilon =
+            static_cast<double>(visCell.epsilon);
+
+        if (ImGui::InputDouble(
+            "Epsilon",
+            &epsilon,
+            0.001,
+            0.01,
+            "%.6f"))
+        {
+            visCell.epsilon =
+                static_cast<T>(epsilon);
+        }
+
+        double minPortalWidth =
+            static_cast<double>(visCell.minPortalWidth);
+
+        if (ImGui::InputDouble(
+            "Min Portal Width",
+            &minPortalWidth,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            visCell.minPortalWidth =
+                static_cast<T>(minPortalWidth);
+        }
+
+        ImGui::Checkbox(
+            "Verbose",
+            &visCell.verbose);
+    }
+
+
+    // ================================================================
+    // PVS
+    // ================================================================
+    if (ImGui::CollapsingHeader("PVS", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        double epsilon =
+            static_cast<double>(pvs.epsilon);
+
+        if (ImGui::InputDouble(
+            "Epsilon",
+            &epsilon,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            pvs.epsilon =
+                static_cast<T>(epsilon);
+        }
+
+        int threads =
+            static_cast<int>(pvs.threads);
+
+        if (ImGui::InputInt(
+            "Threads",
+            &threads))
+        {
+            if (threads < 0)
+                threads = 0;
+
+            pvs.threads =
+                static_cast<unsigned int>(threads);
+        }
+
+        ImGui::Checkbox(
+            "Verbose",
+            &pvs.verbose);
+
+        ImGui::Checkbox(
+            "Skip Void Leaves",
+            &pvs.skipVoidLeaves);
+
+        ImGui::Checkbox(
+            "Require Polygons In Component",
+            &pvs.requirePolygonsInComponent);
+
+        double minPortalArea =
+            static_cast<double>(pvs.minPortalArea);
+
+        if (ImGui::InputDouble(
+            "Min Portal Area",
+            &minPortalArea,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            pvs.minPortalArea =
+                static_cast<T>(minPortalArea);
+        }
+
+        double clipTolerance =
+            static_cast<double>(pvs.clipTolerance);
+
+        if (ImGui::InputDouble(
+            "Clip Tolerance",
+            &clipTolerance,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            pvs.clipTolerance =
+                static_cast<T>(clipTolerance);
+        }
+    }
+}
+
+
+
+template<class T>
+inline void RenderCompilerSetupWindow(bool& m_compile_setup_visible, ng::lightmap::RadiosityOptions<T>& radiosity,
+    ng::lightmap::LightmapOptions& lightmap,
+    ng::bsp::VisCellOptions<T>& visCell,
+    ng::bsp::PVSOptions<T>& pvs)
+{
+    if (ImGui::Begin("Compiler Setup", &m_compile_setup_visible))
+    {
+        
+        DrawLightingVisSetup(radiosity, lightmap, visCell, pvs);
+        
+        ImGui::End();
+    }
+
+
+}
