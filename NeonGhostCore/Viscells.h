@@ -241,6 +241,26 @@ namespace ng
                 return true;
             }
 
+            std::vector<int32_t> CellsTouching(const std::vector<Vec3>& pts) const
+            {
+                using Plane = ng::math::RayPlaneLine<3, T>;
+                std::vector<int32_t> out;
+                std::vector<BSPNode<T>*> st{ m_tree.GetRoot().get() };
+                while (!st.empty())
+                {
+                    BSPNode<T>* n = st.back(); st.pop_back();
+                    if (!n) continue;
+                    if (n->isLeaf()) { out.push_back(n->GetID()); continue; }
+                    switch (ClassifyPoints(n->GetPlane(), pts, m_opt.epsilon))
+                    {
+                    case Plane::FRONT: st.push_back(n->GetFrontNode().get()); break;
+                    case Plane::BACK:  st.push_back(n->GetBackNode().get());  break;
+                    default: st.push_back(n->GetFrontNode().get()); st.push_back(n->GetBackNode().get());
+                    }
+                }
+                return out;
+            }
+
             // --------------------------------------------------------
             // InsertExtraPolygons
             //

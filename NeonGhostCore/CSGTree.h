@@ -102,6 +102,9 @@ namespace ng {
 
 							f.textureIndex() = p.textureIndex();
 							b.textureIndex() = p.textureIndex();
+							
+							f.portalId() = p.portalId();
+							b.portalId() = p.portalId();
 
 							f.plane() = p.plane();
 							b.plane() = p.plane();

@@ -543,8 +543,8 @@ namespace ng::renderer::rasterizer {
                         [](const auto& a, const auto& b) { return a.first < b.first; });
 
                     // ---- Schritt 4: zeichnen ----
-                    std::vector<int32_t> hits;                    // sichtbare Portale dieser Sicht
-                    std::vector<int32_t> postRender;              // Extra-Polygone (Wasser ...)
+                    std::vector<uint32_t> hits;          // Indizes in polys[]: Portal-Fragmente dieser Sicht
+                    std::vector<uint32_t> postRender;    // Extra-Polygone (Wasser ...)
 
                     for (const auto& entry : order)
                     {
@@ -577,20 +577,17 @@ namespace ng::renderer::rasterizer {
 
                             const auto& poly = polys[pi];
 
-                            // ---- Portal-Face: nicht zeichnen, sondern merken ----
-                            if ((poly.flags & ng::bsp::POLY_FLAG_PORTAL) &&
-                                depth < kMaxPortalDepth &&
-                                poly.portalId >= 0 && (size_t)poly.portalId < warps.size())
+                            // ---- Portal-Fragment: nicht zeichnen, sondern merken ----
+                            if (poly.flags & ng::bsp::POLY_FLAG_PORTAL)
                             {
-                                const auto& w = warps[poly.portalId];
-                                if ((w.flags & ng::bsp::WARP_RENDER) && w.partner >= 0 &&
-                                    w.plane.distance(view.eye) > T(0))
+                                if (depth < kMaxPortalDepth &&
+                                    poly.portalId >= 0 && (size_t)poly.portalId < warps.size() &&
+                                    warps[poly.portalId].partner >= 0 &&
+                                    poly.plane.distance(view.eye) > T(0))        // Kamera vor dem Fragment
                                 {
-                                    if (std::find(hits.begin(), hits.end(), poly.portalId) == hits.end())
-                                        hits.push_back(poly.portalId);
-                                    continue;
+                                    hits.push_back(pi);
                                 }
-                                // sonst: normal zeichnen (z.B. Maximaltiefe -> Portal-Textur als Fuellung)
+                                continue;   // Rueckseite / Maximaltiefe: gar nicht zeichnen
                             }
 
                             m_statistics.polys_in++;
@@ -614,6 +611,7 @@ namespace ng::renderer::rasterizer {
                             cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
                     }
 
+                    // ---- Extra-Polygone (Wasser, Glas ...) ----
                     for (uint32_t pi : postRender)
                     {
                         if (pi >= extrapolys.size())
@@ -633,7 +631,7 @@ namespace ng::renderer::rasterizer {
 
                         if (poly.materialId == 0)
                         {
-                            ng::renderer::rasterizer::DrawState state = m_rasterizer.State();
+                            ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
                             state.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
                             state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
                             state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
@@ -654,45 +652,51 @@ namespace ng::renderer::rasterizer {
                         m_statistics.polys_rendered++;
                     }
 
-                    // ---- Portale dieser Sicht: Gegenseite rendern ----
+                    // ---- Portale dieser Sicht: pro Fragment die Gegenseite rendern ----
                     if (hits.empty()) return;
 
-                    // Frustum dieser Sicht als Ebenen (Root: von der Kamera, sonst die gespeicherten)
-                    std::vector<Plane> curPlanes = isRoot ? CameraFrustumPlanes() /* HOOK 1 */ : view.planes;
+                    // Frustum dieser Sicht (Root: von der Kamera, sonst das gespeicherte)
+                    const std::vector<Plane> curPlanes = isRoot ? CameraFrustumPlanes() : view.planes;
 
-                    for (int32_t id : hits)
+                    for (uint32_t pi : hits)
                     {
-                        const auto& A = warps[id];
+                        const auto& frag = polys[pi];
+                        const auto& A = warps[frag.portalId];
                         const auto& B = warps[A.partner];
+
+                        // Fragment (nativer Raum dieser Sicht) als Punktliste
+                        std::vector<Vec3> entry;
+                        entry.reserve(frag.verts.size());
+                        for (const auto& v : frag.verts) entry.push_back(v.world());
 
                         Vec3 nextEye;
                         std::vector<Plane> nextPlanes;
-                        std::vector<Vec3> entry;
+                        std::vector<Vec3> visible;     // sichtbarer Teil des Fragments (nativer Raum)
 
-                        if (!ng::bsp::BuildNextFrustum(A, B, view.eye, curPlanes, nextEye, nextPlanes,
-                            T(1), &entry))
+                        if (!ng::bsp::BuildNextFrustumFromEntry(A, B, entry, view.eye, curPlanes,
+                            nextEye, nextPlanes, visible, T(0.01)))
                             continue;
 
-                        // (a) Sichtbaren Teil des Portals: Tiefe auf "fern" setzen (HOOK 2)
+                        // (a) Tiefe im sichtbaren Fragmentbereich auf "fern" setzen (HOOK 2)
                         {
                             std::vector<Vertex> ev;
-                            ev.reserve(entry.size());
-                            for (const auto& p : entry)
+                            ev.reserve(visible.size());
+                            for (const auto& p : visible)
                             {
                                 Vertex v;
-                                v.world() = view.toScreen.Point(p);
+                                v.world() = view.toScreen.Point(p);     // in den Raum der realen Kamera
                                 ev.push_back(v);
                             }
 
-                            Plane planeReal = A.plane;
-                            if (ng::bsp::BuildOrientedPlane(ev, view.toScreen.Dir(A.normal), planeReal))
+                            Plane planeReal = frag.plane;
+                            if (ng::bsp::BuildOrientedPlane(ev, view.toScreen.Dir(frag.plane.normal()), planeReal))
                             {
                                 ScreenVerts pv = BringToScreen(ev, planeReal);
                                 if (pv.size() >= 3)
                                 {
                                     ng::renderer::rasterizer::DrawState<T> st = m_rasterizer.State();
                                     st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
-                                    st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_CLEAR;   // HOOK 2
+                                    st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_CLEAR;
                                     st.flags &= ~ng::renderer::rasterizer::RASTER_TEXTURE;
                                     st.flags &= ~ng::renderer::rasterizer::RASTER_LIGHTMAP;
                                     m_rasterizer.PushState();
@@ -708,7 +712,8 @@ namespace ng::renderer::rasterizer {
                         View nv;
                         nv.eye = nextEye;
                         nv.planes = std::move(nextPlanes);
-                        nv.visCells = &B.visCells;
+                        //nv.visCells = &B.visCells;
+                        nv.visCells = &A.visCells;
                         nv.toScreen = view.toScreen.After(
                             ng::bsp::RigidXform<T>::FromPortals(B, A));   // B-Raum -> A-Raum -> real
 
@@ -885,6 +890,19 @@ namespace ng::renderer::rasterizer {
             return planes;
         }
 
+        inline std::vector<ng::math::RayPlaneLine<3, T>> CameraFrustumPlanesFalse()
+        {
+            ng::scene::CameraFrustum<T> f(m_camera);       // m_camera: dieselbe Kamera wie in Render()
+            const auto& p = f.planes();                    // Reihenfolge: near, far, top, bottom, left, right
+
+            std::vector<ng::math::RayPlaneLine<3, T>> out;
+            out.push_back(p[0]);   // near
+            out.push_back(p[2]);   // top
+            out.push_back(p[3]);   // bottom
+            out.push_back(p[4]);   // left
+            out.push_back(p[5]);   // right
+            return out;            // far weglassen
+        }
 
         inline void SetCamera(const scene::Camera<T>& camera) {
 

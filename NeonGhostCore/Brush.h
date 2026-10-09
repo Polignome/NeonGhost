@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
+#include <atomic>
 #include "Clipping.h"
 
 
@@ -142,6 +143,10 @@ namespace ng {
 		public:
 			using Vert3 = ng::geometry::Vertex<T>;
 
+			// BrushPoly: neues Member + Zugriff
+			inline int32_t& portalId() { return m_portalId; }
+			inline const int32_t& portalId() const { return m_portalId; }
+
 			inline const ng::math::RayPlaneLine<3, T>& plane() const { return m_plane; }
 			inline       ng::math::RayPlaneLine<3, T>& plane() { return m_plane; }
 
@@ -267,6 +272,7 @@ namespace ng {
 			ng::math::RayPlaneLine<3, T> m_plane;
 			uint32_t 	m_aggregate = 0;
 			int32_t 	m_textureIndex = -1;
+			int32_t m_portalId = -1;
 
 		};
 
@@ -398,10 +404,17 @@ namespace ng {
 
 		struct PortalBrushSettings
 		{
+			// visible: true wird wir ein normal brusch behandelt das face mit der Texture ~teleport wird als eigenliches portal dargestellt
+			//          false nur hullvolume wird als portal genutz und ist unsichbar
 			bool visible = true;	
+			// translucent nur wichtig wenn visible=true
+			// translucent = true wird alles gerendert was das verlinkte portal face sieht (Texture ~teleport).   
 			bool translucent = true;
+            // teleport = false nur sehen ; teleport true objekte und spieler wird telepotiert
 			bool teleport = true;
+			// id Portalid
 			uint32_t id = 0;
+			// linked_id id des verlinkten portals
 			uint32_t linked_id = 0;
 		};
 
@@ -412,7 +425,14 @@ namespace ng {
 		public:
 
 			
-
+			// Brush<T>, public (nach ResolvePortalFace aufrufen, VOR dem CSG):
+			inline void ApplyPortalId()
+			{
+				if (m_portal_face < 0) return;
+				const int32_t id = (int32_t)m_portal_setting.id;
+				if ((size_t)m_portal_face < m_prims.size())          m_prims[m_portal_face].portalId() = id;
+				if ((size_t)m_portal_face < m_temp_org_prims.size()) m_temp_org_prims[m_portal_face].portalId() = id;
+			}
 
 			inline std::string toStr() {
 				std::string s;
@@ -422,16 +442,47 @@ namespace ng {
 			}
 
 
-			bool isPortal() {
-				return m_aggregate & BrushFace<T>::PORTAL_BRUSH;
+		
+
+			// public:
+			inline uint32_t id() const { return m_id; }
+			inline void SetId(uint32_t id) { m_id = id; }
+
+			inline bool isPortal() const { return m_is_portal; }
+			inline int  PortalFaceIndex() const { return m_portal_face; }
+
+			// Waehlt unter allen ~teleport-Faces das mit der groessten Flaeche.
+// Vor dem CSG aufrufen (Face i == m_temp_org_prims[i]).
+// isTeleportTex: int32_t textureIndex -> bool
+			template <class F>
+			inline int ResolvePortalFace(F isTeleportTex)
+			{
+				m_portal_face = -1;
+				T best = T(0);
+				const size_t n = std::min(m_faces.size(), m_temp_org_prims.size());
+				for (size_t i = 0; i < n; ++i)
+				{
+					if (!isTeleportTex(m_faces[i].texture())) continue;
+					const T a = m_temp_org_prims[i].area();
+					if (a > best) { best = a; m_portal_face = (int)i; }
+				}
+				m_is_portal = (m_portal_face >= 0);
+				return m_portal_face;
 			}
 
+			// Zuweisung: alles kopieren (statt der alten Version)
+			Brush& operator=(const Brush&) = default;
 
 
+
+			//Brush(const bool& portal = false) :m_aggregate(-1), m_is_portal(portal)
+			//{
+			//}
 
 			Brush() :m_aggregate(-1)
 			{
 			}
+
 
 			virtual ~Brush(void)
 			{
@@ -559,20 +610,7 @@ namespace ng {
 				m_tree.BuildUnion(r);
 			}
 
-
-			inline Brush<T> operator = (Brush<T> brush)
-			{
-
-				m_faces = brush.faces();
-				m_prims = brush.primitives();
-				std::vector<math::RayPlaneLine<3, T>> fl;
-				for (unsigned int i = 0; i < m_faces.size(); i++) fl.push_back(m_faces[i]);
-
-				m_tree.BuildUnion(fl);
-				return *this;
-			}
-
-
+	
 
 
 
@@ -812,7 +850,12 @@ namespace ng {
 			long m_aggregate;
 			
 
+			// private:
+			static uint32_t NextId() { static std::atomic<uint32_t> c{ 0 }; return ++c; }
 
+			uint32_t m_id = NextId();      // jeder Brush bekommt automatisch eine eigene ID, Kopien behalten sie
+			bool     m_is_portal = false;
+			int      m_portal_face = -1;
 			void buildFaces()
 			{
 				m_prims.clear();

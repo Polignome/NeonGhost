@@ -8,7 +8,7 @@
 //   3. Beim Erzeugen der Solid-Polygone: FindWarpForFace() -> poly.flags/portalId setzen
 //   4. NACH pvs.Build(): LinkWarpCells(cells, pvs, warps)
 // ----------------------------------------------------------------------
-
+#include <unordered_map>
 #include "BSP.h"
 #include "WarpPortal.h"
 #include <vector>
@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-
+#include "Map.h"
 namespace ng
 {
     namespace bsp
@@ -58,85 +58,98 @@ namespace ng
         // "Brushes" = ORIGINAL-Brushes (vor MakeUnion), "prims" ueber primitives_org_copy().
         // Warp-Index = Position im Ergebnis-Vektor; partner = Index des Zielportals.
         // ------------------------------------------------------------
-        template <class T, class BrushT>
-        std::vector<WarpPortal<T>> BuildWarpPortals(
-            const std::vector<BrushT>& origBrushes,
-            const std::vector<PortalEntity<T>>& ents,
-            const math::Matrix<3, 1, T>& worldUp,
-            T maxDist = T(16))
+        template <class T, class F>
+        std::vector<ng::bsp::WarpPortal<T>> BuildWarpPortals(
+            std::vector<ng::map::Brush<T>>& portalBrushes, F isTeleportTex,
+            std::vector<ng::bsp::BSPPolygon<T>>& hullPolys,
+            const ng::math::Matrix<3, 1, T>& worldUp)
         {
-            using Vec3 = math::Matrix<3, 1, T>;
-            using Plane = math::RayPlaneLine<3, T>;
+            using namespace ng::bsp;
+            using Vec3 = ng::math::Matrix<3, 1, T>;
 
-            std::vector<WarpPortal<T>> out;
-            std::map<int32_t, int32_t> idToIndex;
-            std::vector<int32_t> targetOf;
+            std::vector<WarpPortal<T>> portals;
+            std::unordered_map<uint32_t, int32_t> byId;
+            std::vector<uint32_t> linked;
 
-            for (const auto& e : ents)
+            for (auto& b : portalBrushes)
             {
-                T bestDist = maxDist;
-                std::vector<Vec3> bestVerts;
+                const int fi = b.PortalFaceIndex();
+                if (fi < 0) continue;
 
-                for (const auto& b : origBrushes)
+                const auto& cfg = b.PortalSetting();
+                if (byId.count(cfg.id))
                 {
-                    auto faces = b.primitives_org_copy();
-                    for (const auto& f : faces)
-                    {
-                        const auto& fv = f.verts();
-                        if (fv.size() < 3) continue;
-
-                        std::vector<Vec3> pts;
-                        pts.reserve(fv.size());
-                        for (const auto& v : fv) pts.push_back(v.world());
-
-                        Plane pl(pts[0], pts[1], pts[2]);
-                        const T d = std::abs(pl.distance(e.origin));
-                        if (d >= bestDist) continue;
-
-                        // Entity-Position auf die Ebene projizieren und gegen das Polygon testen
-                        Vec3 n = pl.normal(); n.normalize();
-                        const Vec3 proj = e.origin - n * pl.distance(e.origin);
-                        if (!PointInConvexPoly(pts, n, proj, T(0.5))) continue;
-
-                        bestDist = d;
-                        bestVerts = pts;
-                    }
+                    printf("[Portal] doppelte Portal-ID %u (Brush %u)\n", cfg.id, b.id()); continue;
                 }
 
-                if (bestVerts.size() < 3)
-                {
-                    printf("[Portal] Entity id=%d: kein Face in %.1f Units gefunden\n", e.id, (double)maxDist);
-                    continue;
-                }
+                const auto prims = b.primitives_org_copy();
+                const auto& face = prims[fi];
+
+                Vec3 bc(0, 0, 0); size_t cnt = 0;
+                for (const auto& p : prims) for (const auto& v : p.verts()) { bc = bc + v.world(); ++cnt; }
+                bc = bc * (T(1) / T(cnt));
 
                 WarpPortal<T> w;
-                w.id = (int32_t)out.size();
-                w.flags = e.flags;
-                w.verts = bestVerts;
-                w.plane = Plane(bestVerts[0], bestVerts[1], bestVerts[2]);
-                w.Finalize(e.origin, worldUp);
+                w.id = (int32_t)cfg.id;
+                w.flags = (cfg.teleport ? WARP_TELEPORT : 0u)
+                    | ((cfg.visible && cfg.translucent) ? WARP_RENDER : 0u);
+                w.plane = face.plane();
+                for (const auto& v : face.verts()) w.verts.push_back(v.world());
 
-                idToIndex[e.id] = w.id;
-                targetOf.push_back(e.target);
-                out.push_back(std::move(w));
-            }
+                Vec3 fc(0, 0, 0);
+                for (const auto& v : w.verts) fc = fc + v;
+                fc = fc * (T(1) / T(w.verts.size()));
 
-            // Partner aufloesen
-            for (size_t i = 0; i < out.size(); ++i)
-            {
-                auto it = idToIndex.find(targetOf[i]);
-                if (targetOf[i] >= 0 && it != idToIndex.end())
-                    out[i].partner = it->second;
-                else
+                Vec3 n = w.plane.normal(); n.normalize();
+                const T s = (((fc - bc) ^ n) >= T(0)) ? T(1) : T(-1);   // Normale nach aussen
+                
+                
+                const auto& vax = b.faces()[fi].vAxis();                 // Valve-220, V zeigt nach "unten"
+                Vec3 upHint(-vax(0), -vax(1), -vax(2));
+                if (upHint.length() < T(1e-3)) upHint = worldUp;         // keine Mapping-Daten
+                w.Finalize(fc + n * s, upHint);
+                
+                
+                //w.Finalize(fc + n * s, worldUp);
+
+
+
+
+
+                byId[cfg.id] = (int32_t)portals.size();
+                linked.push_back(cfg.linked_id);
+                portals.push_back(std::move(w));
+
+                if (cfg.visible)
                 {
-                    out[i].partner = -1;
-                    out[i].flags = 0;   // ohne Gegenstueck weder teleportieren noch rendern
-                    printf("[Portal] id=%d hat kein gueltiges Ziel -> deaktiviert\n", (int)i);
+                    for (size_t i = 0; i < prims.size(); ++i)
+                    {
+                        
+                        BSPPolygon<T> bp = BSPPolygon<T>::FromBrushPoly(prims[i]);
+                        bp.objectId = b.id();                         // Brush-ID
+                        if ((int)i == fi)
+                        {
+                            bp.flags |= POLY_FLAG_PORTAL;
+                            bp.portalId = (int32_t)cfg.id;            // Portal-ID
+                        }
+                        hullPolys.push_back(std::move(bp));
+                    }
                 }
             }
 
-            printf("[Portal] %zu Portale gebaut\n", out.size());
-            return out;
+            for (size_t i = 0; i < portals.size(); ++i)
+            {
+                auto it = byId.find(linked[i]);
+                if (it == byId.end())
+                {
+                    printf("[Portal] %d: linked_id %u existiert nicht\n", portals[i].id, linked[i]); continue;
+                }
+                portals[i].partner = it->second;
+                if (portals[it->second].id != (int32_t)linked[i] ||
+                    linked[it->second] != (uint32_t)portals[i].id)
+                    printf("[Portal] %d <-> %u ist nicht wechselseitig\n", portals[i].id, linked[i]);
+            }
+            return portals;
         }
 
         // ------------------------------------------------------------

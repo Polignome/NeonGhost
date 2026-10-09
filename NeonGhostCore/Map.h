@@ -246,32 +246,39 @@ namespace ng {
 				
 				for (auto p : entity.parameter)
 				{
-					if (p.values.empty())
-						continue;
-					uint32_t v = std::stoi(p.values[0]);
-					bool on = v > 0;
 
 					if (p.name == "brush_mode")
 					{
+						uint32_t v = std::stoi(p.values[0]);
+						bool on = v > 0;
+
 						settings.visible = on;
 					}
 
 					if (p.name == "face_render")
 					{
-					
+						uint32_t v = std::stoi(p.values[0]);
+						bool on = v > 0;
+
 					   settings.translucent = on;
 					}
 					if (p.name == "linked_to_id")
 					{
+						uint32_t v = std::stoi(p.values[0]);
+						bool on = v > 0;
 						settings.linked_id = v;
 					}
 					if (p.name == "portal_id")
 					{
+						uint32_t v = std::stoi(p.values[0]);
+						bool on = v > 0;
 						settings.id = v;
 					}
 					if (p.name == "spawnflags")
 					{
-						
+						uint32_t v = std::stoi(p.values[0]);
+						bool on = v > 0;
+
 						settings.teleport = on;
 					}
 				}
@@ -283,7 +290,7 @@ namespace ng {
 
 				if (entity.name == "brush" && valid)
 				{
-					AddPortalBrush(entity);
+					AddPortalBrush(entity,settings);
 					return;
 				}
 
@@ -455,11 +462,12 @@ namespace ng {
 			}
 
 
-			inline void AddPortalBrush(TEntity entity)
+			inline void AddPortalBrush(TEntity entity, PortalBrushSettings settings)
 			{
 				if (entity.name != "brush") return;
 				Brush<T> brush;
 
+				brush.PortalSetting() = settings;
 
 				for (unsigned int i = 0; i < entity.sub_entry.size(); i++)
 				{

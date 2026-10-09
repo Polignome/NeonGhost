@@ -60,7 +60,7 @@ static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT
 // static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
 //static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
 
-static MapCompiler<NG_MATH_FLOAT> m_map_compiler;
+
 
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
 std::string VFSFilePicker(bool& show, std::string wildcard) {
@@ -158,8 +158,7 @@ inline void Render() {
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE;// | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
 
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
-  
-   
+     
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
 
     m_render_pipeline_3d.ModelViewMatrix() = m_camera.ViewMatrix();
@@ -168,17 +167,20 @@ inline void Render() {
 
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
-         
-    
-    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
+     
+        m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
 
-
-
-    uint32_t medium=m_render_pipeline_3d.RenderWorld(m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap);
-    
+    //uint32_t medium=m_render_pipeline_3d.RenderWorld(m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap);
+   
     m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
 
+    uint32_t medium = m_render_pipeline_3d.RenderWorld(
+        m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap,
+        m_bsp_scene.m_warpPortals,
+        [](int /*materialId*/) {});   // oder dein echter Material-Binder
+
+    m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
 
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
     
@@ -443,7 +445,7 @@ int main(int argc, char** argv) {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        bool is_loading = m_map_compiler.running();
+        
         
         {
             float x = ImGui::GetIO().DisplaySize.x + 20;
@@ -482,8 +484,8 @@ int main(int argc, char** argv) {
 
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
-                if (ImGui::MenuItem("Load HalfLifeMap",0,false,!is_loading)) m_load_hlm = true;
+                //if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
+                if (ImGui::MenuItem("Load HalfLifeMap")) m_load_hlm = true;
                 if (ImGui::MenuItem("Quit")) m_exit_program = true;
                 ImGui::EndMenu();
             }
@@ -569,7 +571,7 @@ int main(int argc, char** argv) {
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
         if (m_compiler_setting_window) RenderCompilerSetupWindow(m_compiler_setting_window, radOpt, lmOpt, vo, po);
-        if (m_load_hlm & !is_loading) {
+        if (m_load_hlm) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
 			
@@ -586,12 +588,6 @@ int main(int argc, char** argv) {
             }
             
         }
-                
-        if (is_loading) {
-            ImGui::BeginTooltip();
-			ImGui::Text("Compiling Map...");
-            ImGui::EndTooltip();
-          }
 
                 
         ImGui::Render();

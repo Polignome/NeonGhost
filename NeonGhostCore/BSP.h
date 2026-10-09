@@ -79,6 +79,25 @@ namespace ng
             math::Matrix<3, 1, T> lmEdgeV;
 
 
+            // Konvertiert ein BrushPoly (oder jeden Typ mit verts(), plane(), textureIndex())
+            // in ein BSPPolygon. Das Polygon bleibt konvex und wird NICHT trianguliert.
+            //
+            // WICHTIG: Die UV bleiben in Texel-Einheiten, weil Brush::ApplyUVs() mit
+            // texW=texH=1 rechnet. FinalizeTextureUVs() muss danach GENAU EINMAL
+            // aufgerufen werden, nachdem "texture" gesetzt ist.
+            template <class P>
+            static BSPPolygon FromBrushPoly(const P& src, uint32_t objectId = 0,
+                const ng::renderer::gfx::Texture& tex = ng::renderer::gfx::Texture())
+            {
+                BSPPolygon poly;
+                poly.verts = src.verts();
+                poly.plane = src.plane();
+                poly.materialId = src.textureIndex();   // Texturindex, fuer data.m_id_text[...]
+                poly.objectId = objectId;
+                poly.texture = tex;                     // optional, sonst spaeter setzen
+                return poly;
+            }
+
             // Nach dem Erzeugen von polys/extra_polys, bevor der BSP gebaut wird:
             
             void FinalizeTextureUVs( bool flipV=false)
@@ -2595,7 +2614,32 @@ namespace ng
 
 
 
+        template <class T>
+        bool BuildNextFrustumFromEntry(const WarpPortal<T>& a, const WarpPortal<T>& b,
+            const std::vector<math::Matrix<3, 1, T>>& entry,
+            const math::Matrix<3, 1, T>& eye,
+            const std::vector<math::RayPlaneLine<3, T>>& curFrustum,
+            math::Matrix<3, 1, T>& nextEye,
+            std::vector<math::RayPlaneLine<3, T>>& nextPlanes,
+            std::vector<math::Matrix<3, 1, T>>& visibleEntry,
+            T minArea = T(1))
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
 
+            visibleEntry = ClipPolyToPlanes(entry, curFrustum);
+            if (visibleEntry.size() < 3 || PortalArea(visibleEntry) < minArea) return false;
+
+            nextEye = WarpPoint(a, b, eye);
+            std::vector<Vec3> q;
+            for (const auto& v : visibleEntry) q.push_back(WarpPoint(a, b, v));
+
+            q = ClipPolyToPlanes(q, FrustumFromPolygon(nextEye, b.verts));   // Oeffnung von B
+            if (q.size() < 3 || PortalArea(q) < minArea) return false;
+
+            nextPlanes = FrustumFromPolygon(nextEye, q);
+            nextPlanes.push_back(b.plane);
+            return nextPlanes.size() >= 4;
+        }
 
 
 
