@@ -2613,7 +2613,7 @@ namespace ng
 
 
 
-
+        /*
         template <class T>
         bool BuildNextFrustumFromEntry(const WarpPortal<T>& a, const WarpPortal<T>& b,
             const std::vector<math::Matrix<3, 1, T>>& entry,
@@ -2640,10 +2640,34 @@ namespace ng
             nextPlanes.push_back(b.plane);
             return nextPlanes.size() >= 4;
         }
+    */
 
 
+        template <class T>
+        bool BuildNextFrustumFromEntry(const WarpPortal<T>& a, const WarpPortal<T>& b,
+            const std::vector<math::Matrix<3, 1, T>>& entry,
+            const math::Matrix<3, 1, T>& eye,
+            const std::vector<math::RayPlaneLine<3, T>>& curFrustum,
+            math::Matrix<3, 1, T>& nextEye,
+            std::vector<math::RayPlaneLine<3, T>>& nextPlanes,
+            std::vector<math::Matrix<3, 1, T>>& visibleEntry,
+            T minArea = T(1))
+        {
+            using Vec3 = math::Matrix<3, 1, T>;
 
+            visibleEntry = ClipPolyToPlanes(entry, curFrustum);
+            if (visibleEntry.size() < 3 || PortalArea(visibleEntry) < minArea) return false;
 
+            nextEye = WarpPoint(a, b, eye);
+            std::vector<Vec3> q;
+            q.reserve(visibleEntry.size());
+            for (const auto& v : visibleEntry) q.push_back(WarpPoint(a, b, v));
+
+            // KEIN Clip gegen b.verts mehr: Form von B ist egal.
+            nextPlanes = FrustumFromPolygon(nextEye, q);
+            nextPlanes.push_back(b.plane);          // Near-Plane: nur was VOR B liegt
+            return nextPlanes.size() >= 4;
+        }
 
 
 

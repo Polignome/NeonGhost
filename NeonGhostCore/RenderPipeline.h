@@ -328,7 +328,7 @@ namespace ng::renderer::rasterizer {
             using Plane = ng::math::RayPlaneLine<3, T>;
             using Vertex = ng::geometry::Vertex<T>;
             using ScreenVerts = std::vector<ng::renderer::rasterizer::ScreenVertex<T>>;
-            constexpr int kMaxPortalDepth = 4;
+            constexpr int kMaxPortalDepth = 4*2;
             const T kClipEps = T(0.01);
 
             UpdateCameraPos();

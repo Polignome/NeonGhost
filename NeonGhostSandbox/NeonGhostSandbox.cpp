@@ -61,7 +61,6 @@ static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT
 //static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
 
 
-
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
 std::string VFSFilePicker(bool& show, std::string wildcard) {
     if (!show) return "";
