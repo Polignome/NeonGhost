@@ -115,7 +115,6 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
 }
 
 
-
 void LoadMapReady(bool error, BspScene<NG_MATH_FLOAT>&& scene) {
     if (error) {
         std::cout << "Error loading map" << std::endl;

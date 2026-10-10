@@ -498,7 +498,7 @@ namespace ng::renderer::rasterizer {
 
                     return BringToScreen(cv, pl);
                 };
-
+            /*
             auto drawView = [&](auto&& self, const View& view, int depth) -> void
                 {
                     const bool isRoot = (depth == 0);
@@ -720,6 +720,278 @@ namespace ng::renderer::rasterizer {
                         self(self, nv, depth + 1);
                     }
                 };
+                */
+
+
+
+
+
+
+auto drawView = [&](auto&& self, const View& view, int depth) -> void
+    {
+        const bool isRoot = (depth == 0);
+
+        if (++m_worldStampValue == 0)
+        {
+            std::fill(m_worldPolyStamp.begin(), m_worldPolyStamp.end(), 0u);
+            m_worldStampValue = 1;
+        }
+
+        // ---- Schritt 2: Culling pro Zelle ----
+        std::vector<std::pair<T, int32_t>> order;
+
+        for (int32_t c : *view.visCells)
+        {
+            if (c < 0 || (size_t)c >= cellCount) continue;
+            if (cells.CellPolygons(c).empty() && cells.CellExtraPolygons(c).empty())
+                continue;
+
+            if (isRoot) m_statistics.cells_with_geometry++;
+
+            const ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
+
+            if (isRoot)
+            {
+                if ((m_culling_mode & CULL_FRUSTUM) && !m_frustum.intersectsAABB(box))
+                {
+                    m_statistics.cells_frustum_culled++;
+                    continue;
+                }
+            }
+            else if (ng::bsp::AABBOutsidePlanes(box, view.planes))
+                continue;
+
+            const auto center = (box.Min() + box.Max()) * static_cast<T>(0.5);
+            const auto d = center - view.eye;
+            order.emplace_back(d ^ d, c);
+        }
+
+        // ---- Schritt 3: von vorn nach hinten ----
+        std::sort(order.begin(), order.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+
+        // ---- Schritt 4a: opake Polygone zeichnen ----
+        std::vector<uint32_t> hits;          // Indizes in polys[]: Portal-Fragmente dieser Sicht
+        std::vector<uint32_t> postRender;    // Extra-Polygone (Wasser, Glas ...)
+
+        for (const auto& entry : order)
+        {
+            const int32_t c = entry.second;
+            const ng::bounding::AABBox<3, T> box = m_worldCellBounds[c];
+
+            // MOC/HZB gelten nur fuer die echte Kamera
+            if (isRoot && (m_culling_mode & CULL_MOC))
+            {
+                if (!MOCTestAABBoxVisibility(box)) { m_statistics.cells_culled_by_moc++; continue; }
+            }
+            if (isRoot && (m_culling_mode & CULL_HZB))
+            {
+                if (!HZBTestAABBoxVisibility(box)) { m_statistics.cells_culled_by_hzb++; continue; }
+            }
+
+            m_statistics.cells_rendered++;
+
+            for (uint32_t pi : cells.CellPolygons(c))
+            {
+                if (pi >= polys.size())
+                {
+                    printf("[RenderWorld] UNGUELTIGER Polygon-Index: pi=%u, polys.size()=%zu (Zelle %d)\n",
+                        pi, polys.size(), c);
+                    continue;
+                }
+
+                if (m_worldPolyStamp[pi] == m_worldStampValue) continue;
+                m_worldPolyStamp[pi] = m_worldStampValue;
+
+                const auto& poly = polys[pi];
+
+                // ---- Portal-Fragment: nicht zeichnen, sondern merken ----
+                if (poly.flags & ng::bsp::POLY_FLAG_PORTAL)
+                {
+                    if (depth < kMaxPortalDepth &&
+                        poly.portalId >= 0 && (size_t)poly.portalId < warps.size() &&
+                        warps[poly.portalId].partner >= 0 &&
+                        poly.plane.distance(view.eye) > T(0))        // Kamera vor dem Fragment
+                    {
+                        hits.push_back(pi);
+                    }
+                    continue;   // Rueckseite / Maximaltiefe: gar nicht zeichnen
+                }
+
+                m_statistics.polys_in++;
+
+                ScreenVerts verts2d = projectPoly(poly, view, isRoot);
+                if (verts2d.size() < 3) continue;
+
+                bindPolygonTexture(poly);
+                m_rasterizer.DrawPolygon(verts2d);
+
+                if (isRoot && (m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                    !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                {
+                    m_rasterizer.DrawOcclusionPolygon(verts2d);
+                }
+
+                m_statistics.polys_rendered++;
+            }
+
+            postRender.insert(postRender.end(),
+                cells.CellExtraPolygons(c).begin(), cells.CellExtraPolygons(c).end());
+        }
+
+        // ---- Schritt 4c (als Lambda): transparente Extra-Polygone, laufen NACH den Portalen ----
+        auto drawExtras = [&]()
+            {
+                // Doppelte entfernen (ein Polygon steht in mehreren Zellen), sonst wird es mehrfach geblendet
+                std::sort(postRender.begin(), postRender.end());
+                postRender.erase(std::unique(postRender.begin(), postRender.end()), postRender.end());
+
+                // Hinten nach vorne sortieren
+                std::vector<std::pair<T, uint32_t>> sorted;
+                sorted.reserve(postRender.size());
+                for (uint32_t pi : postRender)
+                {
+                    if (pi >= extrapolys.size())
+                    {
+                        printf("[RenderWorld] UNGUELTIGER Extra-Polygon-Index: pi=%u, extrapolys.size()=%zu\n",
+                            pi, extrapolys.size());
+                        continue;
+                    }
+
+                    const auto& p = extrapolys[pi];
+                    Vec3 cen(0, 0, 0);
+                    for (const auto& v : p.verts) cen = cen + v.world();
+                    cen = cen * (T(1) / T(std::max<size_t>(1, p.verts.size())));
+                    const Vec3 d = cen - view.eye;
+                    sorted.emplace_back(d ^ d, pi);
+                }
+                std::sort(sorted.begin(), sorted.end(),
+                    [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                for (const auto& s : sorted)
+                {
+                    const auto& poly = extrapolys[s.second];
+                    m_statistics.polys_in++;
+
+                    ScreenVerts verts2d = projectPoly(poly, view, isRoot);
+                    if (verts2d.size() < 3) continue;
+
+                    bindPolygonTexture(poly);
+
+                    if (poly.materialId == 0)
+                    {
+                        ng::renderer::rasterizer::DrawState<T> state = m_rasterizer.State();
+                        state.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                        state.flags &= ~ng::renderer::rasterizer::RASTER_DEPTH_WRITE;
+                        state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
+                        state.materialAlpha = 0.8;
+                        m_rasterizer.PushState();
+                        m_rasterizer.SetState(state);
+                        m_rasterizer.DrawPolygon(verts2d);
+                        m_rasterizer.PopState();
+                    }
+                    else m_rasterizer.DrawPolygon(verts2d);
+
+                    if (isRoot && (m_culling_mode & CULL_MOC) && m_rasterizer.IsMocUsed() &&
+                        !(m_rasterizer.State().flags & RASTER_TRANSPARENT))
+                    {
+                        m_rasterizer.DrawOcclusionPolygon(verts2d);
+                    }
+
+                    m_statistics.polys_rendered++;
+                }
+            };
+
+        // ---- Schritt 4b: Portale dieser Sicht, pro Fragment die Gegenseite rendern ----
+        if (hits.empty())
+        {
+            drawExtras();
+            return;
+        }
+
+        // Frustum dieser Sicht (Root: von der Kamera, sonst das gespeicherte)
+        const std::vector<Plane> curPlanes = isRoot ? CameraFrustumPlanes() : view.planes;
+
+        for (uint32_t pi : hits)
+        {
+            const auto& frag = polys[pi];
+            const auto& A = warps[frag.portalId];
+            const auto& B = warps[A.partner];
+
+            // Fragment (nativer Raum dieser Sicht) als Punktliste
+            std::vector<Vec3> entry;
+            entry.reserve(frag.verts.size());
+            for (const auto& v : frag.verts) entry.push_back(v.world());
+
+            Vec3 nextEye;
+            std::vector<Plane> nextPlanes;
+            std::vector<Vec3> visible;     // sichtbarer Teil des Fragments (nativer Raum)
+
+            if (!ng::bsp::BuildNextFrustumFromEntry(A, B, entry, view.eye, curPlanes,
+                nextEye, nextPlanes, visible, T(0.01)))
+                continue;
+
+            // (a) Tiefe im sichtbaren Fragmentbereich auf "fern" setzen
+            {
+                std::vector<Vertex> ev;
+                ev.reserve(visible.size());
+                for (const auto& p : visible)
+                {
+                    Vertex v;
+                    v.world() = view.toScreen.Point(p);     // in den Raum der realen Kamera
+                    ev.push_back(v);
+                }
+
+                Plane planeReal = frag.plane;
+                if (ng::bsp::BuildOrientedPlane(ev, view.toScreen.Dir(frag.plane.normal()), planeReal))
+                {
+                    ScreenVerts pv = BringToScreen(ev, planeReal);
+                    if (pv.size() >= 3)
+                    {
+                        ng::renderer::rasterizer::DrawState<T> st = m_rasterizer.State();
+                        st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_TEST;
+                        st.flags |= ng::renderer::rasterizer::RASTER_DEPTH_CLEAR;
+                        st.flags &= ~ng::renderer::rasterizer::RASTER_TEXTURE;
+                        st.flags &= ~ng::renderer::rasterizer::RASTER_LIGHTMAP;
+                        m_rasterizer.PushState();
+                        m_rasterizer.SetState(st);
+                        m_rasterizer.DrawPolygon(pv);
+                        m_rasterizer.PopState();
+                        m_worldHaveDirectTexture = false;   // Textur-State wurde gewechselt
+                    }
+                }
+            }
+
+            // (b) Gegenseite: Sicht von B, Zellen vor B = was man DURCH A sieht
+            View nv;
+            nv.eye = nextEye;
+            nv.planes = std::move(nextPlanes);
+            nv.visCells = &A.visCells;
+            nv.toScreen = view.toScreen.After(
+                ng::bsp::RigidXform<T>::FromPortals(B, A));   // B-Raum -> A-Raum -> real
+
+            self(self, nv, depth + 1);
+        }
+
+        // ---- Schritt 4c: Wasser/Glas dieser Sicht ueber das Portalbild ----
+        drawExtras();
+    };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
             drawView(drawView, root, 0);
 
