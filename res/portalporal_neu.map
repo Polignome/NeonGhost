@@ -1,0 +1,14 @@
+// Game: DarkGhostNeon
+// Format: Valve
+// entity 0
+{
+"mapversion" "220"
+"wad" "C:/Users/Administrator/source/repos/NeonGhost/res/NewBigWad.wad"
+"classname" "worldspawn"
+"sounds" "1"
+"MaxRange" "4096"
+"startdark" "0"
+"gametitle" "0"
+"newunit" "0"
+"defaultteam" "0"
+}

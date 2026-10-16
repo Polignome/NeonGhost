@@ -1003,9 +1003,136 @@ namespace ng
             }
         }
 
+        struct PosKey { int64_t x, y, z; bool operator==(const PosKey& o) const { return x == o.x && y == o.y && z == o.z; } };
+        struct PosHash { size_t operator()(const PosKey& k) const { return (size_t)(k.x * 73856093 ^ k.y * 19349663 ^ k.z * 83492791); } };
+
+        template <class T>
+        void SmoothNormals(std::vector<ng::bsp::BSPPolygon<T>>& polys, T maxAngleDeg = T(60))
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            const T cosLimit = std::cos(maxAngleDeg * T(3.14159265358979) / T(180));
+            auto key = [](const Vec3& p) {
+                return PosKey{ (int64_t)std::llround((double)p(0) * 100.0),
+                               (int64_t)std::llround((double)p(1) * 100.0),
+                               (int64_t)std::llround((double)p(2) * 100.0) };
+                };
+
+            // Position -> Flaechennormalen (gewichtet mit der Flaeche)
+            std::unordered_map<PosKey, std::vector<Vec3>, PosHash> map;
+            for (auto& p : polys)
+            {
+                const Vec3 n = p.plane.normal();
+                const Vec3 wn = n * ng::bsp::VertsArea(p.verts);
+                for (auto& v : p.verts) map[key(v.world())].push_back(wn);
+            }
+
+            for (auto& p : polys)
+            {
+                const Vec3 fn = p.plane.normal();
+                for (auto& v : p.verts)
+                {
+                    Vec3 sum(0, 0, 0);
+                    for (const auto& wn : map[key(v.world())])
+                    {
+                        const T len = wn.length();
+                        if (len < T(1e-12)) continue;
+                        if ((wn ^ fn) / len >= cosLimit) sum = sum + wn;   // nur aehnliche Flaechen mitteln
+                    }
+                    const T l = sum.length();
+                    v.normal() = (l > T(1e-12)) ? sum * (T(1) / l) : fn;
+                }
+            }
+        }
+
+        
+        template<class T>
+        void SmoothNormals(
+            const std::vector<ng::bsp::BSPPolygon<T>*>& polys,
+            T maxAngleDeg = T(60))
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+
+            const T cosLimit =
+                std::cos(maxAngleDeg * T(3.14159265358979) / T(180));
+
+            auto key = [](const Vec3& p)
+                {
+                    return PosKey{
+                        (int64_t)std::llround((double)p(0) * 100.0),
+                        (int64_t)std::llround((double)p(1) * 100.0),
+                        (int64_t)std::llround((double)p(2) * 100.0)
+                    };
+                };
+
+            // Weltposition -> flächengewichtete Normalen aller angrenzenden Polygone
+            std::unordered_map<PosKey, std::vector<Vec3>, PosHash> map;
+
+            for (const auto* poly : polys)
+            {
+                if (!poly || poly->verts.size() < 3)
+                    continue;
+
+                const Vec3 n = poly->plane.normal();
+                const Vec3 wn = n * ng::bsp::VertsArea(poly->verts);
+
+                for (const auto& v : poly->verts)
+                    map[key(v.world())].push_back(wn);
+            }
+
+            // Direkt die Originalvertices im BSP aktualisieren
+            for (auto* poly : polys)
+            {
+                if (!poly || poly->verts.size() < 3)
+                    continue;
+
+                const Vec3 fn = poly->plane.normal();
+
+                for (auto& v : poly->verts)
+                {
+                    Vec3 sum(0, 0, 0);
+
+                    const auto it = map.find(key(v.world()));
+                    if (it == map.end())
+                    {
+                        v.normal() = fn;
+                        continue;
+                    }
+
+                    for (const auto& wn : it->second)
+                    {
+                        const T len = wn.length();
+                        if (len < T(1e-12))
+                            continue;
+
+                        // Nur Flaechennormalen innerhalb des Winkels einbeziehen
+                        if ((wn ^ fn) / len >= cosLimit)
+                            sum = sum + wn;
+                    }
+
+                    const T len = sum.length();
+                    v.normal() =
+                        (len > T(1e-12))
+                        ? sum * (T(1) / len)
+                        : fn;
+                }
+            }
+        }
+
+        template <class T>
+        struct BSPOptions
+        {
+            bool fixTJunctions = true;
+            bool rebuild_normals = true;
+        };
+
+        
+        
         // ------------------------------------------------------------
         // BSPNode
         // ------------------------------------------------------------
+
+
+
 
         template <class T>
         class BSPNode {
@@ -1417,6 +1544,8 @@ namespace ng
         // keine Portale). Fuer den normalen Workflow BSPTree::Build().
         // ------------------------------------------------------------
 
+
+
         template <class T>
         inline std::unique_ptr<BSPNode<T>> BuildBsp(const std::vector<BSPPolygon<T>>& polygons)
         {
@@ -1434,6 +1563,9 @@ namespace ng
         // BSPTree
         // ------------------------------------------------------------
 
+
+
+
         template <class T>
         class BSPTree {
         public:
@@ -1441,7 +1573,165 @@ namespace ng
 
             BSPTree() {}
 
-            inline void Build(const std::vector<BSPPolygon<T>>& polys)
+            inline size_t FixTJunctions()
+            {
+                using Vec3 = ng::math::Matrix<3, 1, T>;
+
+                if (!m_root || m_leaflist.empty())
+                    return 0;
+
+                const T eps = m_epsilon;
+                const T eps2 = eps * eps;
+
+                // 1. Alle eindeutigen Vertices aus den Leaf-Polygonen sammeln.
+                std::vector<Vec3> points;
+
+                auto dist2 = [](const Vec3& a, const Vec3& b) -> T
+                    {
+                        const Vec3 d = a - b;
+                        return d ^ d; // Nur verwenden, falls Matrix * Skalarprodukt liefert.
+                    };
+
+                for (const auto& leaf : m_leaflist)
+                {
+                    if (!leaf) continue;
+
+                    for (const auto& poly : leaf->polys)
+                    {
+                        for (const auto& vertex : poly.verts)
+                        {
+                            const Vec3 p = vertex.world();
+
+                            bool found = false;
+                            for (const auto& q : points)
+                            {
+                                if (dist2(p, q) <= eps2)
+                                {
+                                    found = true;
+                                    break;
+                                }
+                            }
+
+                            if (!found)
+                                points.push_back(p);
+                        }
+                    }
+                }
+
+                size_t inserted = 0;
+
+                // 2. Jede Kante um Vertices ergänzen, die auf ihr liegen.
+                for (const auto& leaf : m_leaflist)
+                {
+                    if (!leaf) continue;
+
+                    for (auto& poly : leaf->polys)
+                    {
+                        if (poly.verts.size() < 3)
+                            continue;
+
+                        using Vertex = typename std::decay_t<
+                            decltype(poly.verts)>::value_type;
+
+                        std::vector<Vertex> fixed;
+                        fixed.reserve(poly.verts.size() + 8);
+
+                        const size_t count = poly.verts.size();
+
+                        for (size_t i = 0; i < count; ++i)
+                        {
+                            const Vertex& va = poly.verts[i];
+                            const Vertex& vb = poly.verts[(i + 1) % count];
+
+                            const Vec3 a = va.world();
+                            const Vec3 b = vb.world();
+                            const Vec3 ab = b - a;
+
+                            const T len2 = ab ^ ab;
+
+                            fixed.push_back(va);
+
+                            if (len2 <= eps2)
+                                continue;
+
+                            struct Candidate
+                            {
+                                T t;
+                                Vec3 p;
+                            };
+
+                            std::vector<Candidate> candidates;
+
+                            for (const auto& p : points)
+                            {
+                                const Vec3 ap = p - a;
+                                const T t = (ap ^ ab) / len2;
+
+                                // Endpunkte nicht erneut einfügen.
+                                if (t <= eps / std::sqrt(len2) ||
+                                    t >= T(1) - eps / std::sqrt(len2))
+                                    continue;
+
+                                const Vec3 closest = a + ab * t;
+                                const Vec3 delta = p - closest;
+                                const T dd = (delta ^ delta);
+                                if (dd <= eps2)
+                                    candidates.push_back({ t, p });
+                            }
+
+                            std::sort(candidates.begin(), candidates.end(),
+                                [](const Candidate& lhs, const Candidate& rhs)
+                                {
+                                    return lhs.t < rhs.t;
+                                });
+
+                            for (const auto& c : candidates)
+                            {
+                                // Wichtig: Das ist zunächst nur eine geometrische
+                                // Position. Ein echter Vertex muss seine Attribute
+                                // aus der ursprünglichen Kante interpolieren.
+                                Vertex v = va;
+
+                                // Diese Zuweisung ggf. an deine Vertex-API anpassen.
+                                v.world() = c.p;
+
+                                fixed.push_back(std::move(v));
+                                ++inserted;
+                            }
+                        }
+
+                        poly.verts = std::move(fixed);
+                    }
+                }
+
+                return inserted;
+            }
+
+       
+            void CollectPolygonPointers(
+                std::shared_ptr<BSPNode<T>> node,
+                std::vector<ng::bsp::BSPPolygon<T>*>& out)
+            {
+                if (!node)
+                    return;
+
+                if (node->m_state == LEAF)
+                {
+                    for (auto& poly : node->polys)
+                        out.push_back(&poly);
+
+                    for (auto& poly : node->extraPolys)
+                        out.push_back(&poly);
+
+                    return;
+                }
+
+                CollectPolygonPointers(node->m_front_node, out);
+                CollectPolygonPointers(node->m_back_node, out);
+            }
+
+
+            inline void Build(const std::vector<BSPPolygon<T>>& polys,const BSPOptions<T>&options= BSPOptions<T>())
             {
                 m_leaflist.clear();
                 m_portals.clear();
@@ -1476,6 +1766,26 @@ namespace ng
                 // Nur ein einziges Leaf: der Ctor registriert es nicht selbst.
                 if (m_root && m_root->isLeaf() && m_leaflist.empty())
                     AddLeaf(m_root);
+
+
+
+                if (options.fixTJunctions) {
+                    printf("[BSP] Fix TJunctions\n");
+                    FixTJunctions();
+                }
+
+                if (options.rebuild_normals && m_root) {
+                    std::vector<ng::bsp::BSPPolygon<T>*> out;
+                    
+
+                    CollectPolygonPointers(m_root, out);
+                    printf("[BSP] Collect Polygonpointers %llu\n", out.size());
+                    printf("[BSP] Smooth normals \n");
+
+                    SmoothNormals(out);
+                }
+
+
 
                 if (m_verbose)
                     printf("[BSP] fertig: leaves=%zu tiefe=%d\n", m_leaflist.size(), m_maxDepth);
@@ -2078,7 +2388,13 @@ namespace ng
             {
                 m_portals.push_back(portal);
             }
-        };
+        
+
+
+
+
+
+};
 
 
         // ------------------------------------------------------------
@@ -2354,10 +2670,15 @@ namespace ng
         {
             using Vec3 = math::Matrix<3, 1, T>;
             using Plane = math::RayPlaneLine<3, T>;
-
+            float seeThrough = (T)1.0;
+            float wobble = 0.0f;       // NEU
             int32_t  id = -1;
             int32_t  partner = -1;
             uint32_t flags = WARP_TELEPORT | WARP_RENDER;
+
+            
+            
+
 
             std::vector<Vec3> verts;      // konvexes Portal-Polygon (Welt)
             Plane plane;                  // Normale zeigt in den begehbaren Raum
@@ -2610,39 +2931,6 @@ namespace ng
             return false;
         }
 
-
-
-
-        /*
-        template <class T>
-        bool BuildNextFrustumFromEntry(const WarpPortal<T>& a, const WarpPortal<T>& b,
-            const std::vector<math::Matrix<3, 1, T>>& entry,
-            const math::Matrix<3, 1, T>& eye,
-            const std::vector<math::RayPlaneLine<3, T>>& curFrustum,
-            math::Matrix<3, 1, T>& nextEye,
-            std::vector<math::RayPlaneLine<3, T>>& nextPlanes,
-            std::vector<math::Matrix<3, 1, T>>& visibleEntry,
-            T minArea = T(1))
-        {
-            using Vec3 = math::Matrix<3, 1, T>;
-
-            visibleEntry = ClipPolyToPlanes(entry, curFrustum);
-            if (visibleEntry.size() < 3 || PortalArea(visibleEntry) < minArea) return false;
-
-            nextEye = WarpPoint(a, b, eye);
-            std::vector<Vec3> q;
-            for (const auto& v : visibleEntry) q.push_back(WarpPoint(a, b, v));
-
-            q = ClipPolyToPlanes(q, FrustumFromPolygon(nextEye, b.verts));   // Oeffnung von B
-            if (q.size() < 3 || PortalArea(q) < minArea) return false;
-
-            nextPlanes = FrustumFromPolygon(nextEye, q);
-            nextPlanes.push_back(b.plane);
-            return nextPlanes.size() >= 4;
-        }
-    */
-
-
         template <class T>
         bool BuildNextFrustumFromEntry(const WarpPortal<T>& a, const WarpPortal<T>& b,
             const std::vector<math::Matrix<3, 1, T>>& entry,
@@ -2668,7 +2956,6 @@ namespace ng
             nextPlanes.push_back(b.plane);          // Near-Plane: nur was VOR B liegt
             return nextPlanes.size() >= 4;
         }
-
 
 
 

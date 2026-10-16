@@ -59,6 +59,13 @@ namespace ng::lightmap {
         // 0 = aus. Gilt aktuell fuer ALLE Polygone gleich - fuer
         // selektives Verhalten vor dem Aufruf per Materialflag filtern.
         T textureEmissionStrength = T(0);
+
+        // Obergrenze fuer den Wert (max. Kanal) eines einzelnen Strahl-Treffers.
+// Verhindert Firefly-Flecken durch kleine, sehr helle Quellen.
+        double maxSampleValue = 64.0;
+
+        // Anzahl Blur-Durchlaeufe auf dem eingehenden Licht pro Bounce (0 = aus).
+        int blurPasses = 1;
     };
 
     template<class T>
@@ -77,7 +84,49 @@ namespace ng::lightmap {
     enum class PatchDumpMode { Albedo, Residual, Accumulated };
 
 
+    template<class T>
+    void BlurIncoming(std::vector<Vec3<T>>& incoming, const RadiosityLookup& lookup)
+    {
+        std::vector<Vec3<T>> out = incoming;
 
+        for (size_t pi = 0; pi < lookup.patchOffset.size(); ++pi)
+        {
+            const int off = lookup.patchOffset[pi];
+            if (off < 0) continue;
+
+            const int bw = lookup.blocksW[pi];
+            const int bh = lookup.blocksH[pi];
+
+            for (int by = 0; by < bh; ++by)
+            {
+                for (int bx = 0; bx < bw; ++bx)
+                {
+                    Vec3<T> sum(0, 0, 0);
+                    T wsum = T(0);
+
+                    for (int dy = -1; dy <= 1; ++dy)
+                    {
+                        for (int dx = -1; dx <= 1; ++dx)
+                        {
+                            const int x = bx + dx;
+                            const int y = by + dy;
+                            if (x < 0 || y < 0 || x >= bw || y >= bh) continue;
+
+                            const T w = (dx == 0 && dy == 0) ? T(4)
+                                : (dx == 0 || dy == 0) ? T(2) : T(1);
+
+                            sum = sum + incoming[off + y * bw + x] * w;
+                            wsum = wsum + w;
+                        }
+                    }
+
+                    out[off + by * bw + bx] = sum * (T(1) / wsum);
+                }
+            }
+        }
+
+        incoming.swap(out);
+    }
 
     // ------------------------------------------------------------
     // DumpPatchesBMP
@@ -237,106 +286,16 @@ namespace ng::lightmap {
 
    
 
-    
-    // ------------------------------------------------------------
-    // RunRadiosityBounces
-    //
-    // Jacobi-Iteration ueber alle Patches. Occlusion/Nearest-Hit laeuft
-    // ueber "occlusionTree" (siehe BuildRadiosityOcclusionTree).
-    // ------------------------------------------------------------
-    template<class T>
-    void RunRadiosityBounces(std::vector<RadiosityPatch<T>>& patches,
-        const ng::bsp::BSPTree<T>& occlusionTree,
-        const RadiosityOptions<T>& opt)
-    {
-        std::mt19937 rng(opt.randomSeed);
-        std::vector<Vec3<T>> incoming(patches.size());
-
-        for (int bounce = 0; bounce < opt.bounces; ++bounce)
-        {
-            int totalRays = 0, totalHits = 0;
-
-            for (size_t i = 0; i < patches.size(); ++i)
-            {
-                const auto& receiver = patches[i];
-                Vec3<T> sum(0, 0, 0);
-                int hits = 0;
-
-                for (int s = 0; s < opt.samplesPerPatch; ++s)
-                {
-                    ++totalRays;
-                    const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, rng);
-
-                    auto hit = BSPRayNearestHit(occlusionTree, receiver.center, dir,
-                        (T)opt.maxRayDistance, (T)opt.epsilon);
-
-                    if (!hit.hit) continue;
-
-                    ++totalHits;
-                    const size_t patchIdx = hit.poly->objectId;
-                    if (patchIdx >= patches.size()) continue; // Sicherheitsnetz
-
-                    sum = sum + patches[patchIdx].residual;
-                    ++hits;
-                }
-
-                incoming[i] = (hits > 0) ? (sum * (T(1) / T(opt.samplesPerPatch))) : Vec3<T>(0, 0, 0);
-            }
-
-            for (size_t i = 0; i < patches.size(); ++i)
-            {
-                patches[i].accumulated = patches[i].accumulated + incoming[i];
-                patches[i].residual = Vec3<T>(
-                    incoming[i](0) * patches[i].albedo(0),
-                    incoming[i](1) * patches[i].albedo(1),
-                    incoming[i](2) * patches[i].albedo(2));
-            }
-
-            printf("[Radiosity] Bounce %d / %d: Hit-Rate %d/%d (%.1f%%)\n",
-                bounce + 1, opt.bounces, totalHits, totalRays,
-                totalRays > 0 ? 100.0 * totalHits / totalRays : 0.0);
-        }
-    }
-
+ 
    
     
-    // ------------------------------------------------------------
+   // ------------------------------------------------------------
    // ApplyRadiosityToAtlas
    //
    // Schreibt patch.accumulated additiv ueber genau den Block
    // (x0..x1, y0..y1), den dieser Patch abdeckt.
    // ------------------------------------------------------------
-   /* template<class T>
-    void ApplyRadiosityToAtlas(LightMapAtlas& atlas, const std::vector<RadiosityPatch<T>>& patches, const RadiosityOptions<T>& opt)
-    {
-        const double g = opt.indirectGain;
-        for (const auto& patch : patches)
-        {
-            const auto& poly = *patch.poly;
-            const uint32_t addR = (uint32_t)std::clamp(std::round((double)patch.accumulated(0) * g), 0.0, 255.0);
-            const uint32_t addG = (uint32_t)std::clamp(std::round((double)patch.accumulated(1) * g), 0.0, 255.0);
-            const uint32_t addB = (uint32_t)std::clamp(std::round((double)patch.accumulated(2) * g), 0.0, 255.0);
-            
-            for (int y = patch.y0; y < patch.y1; ++y)
-            {
-                for (int x = patch.x0; x < patch.x1; ++x)
-                {
-                    const int xx = poly.lmPosX + x;
-                    const int yy = poly.lmPosY + y;
-
-                    const uint32_t existing = atlas.Buffer().GetPixel(xx, yy);
-                    const uint32_t er = RGBToRed(existing), eg = RGBToGreen(existing), eb = RGBToBlue(existing);
-
-                    const uint32_t r = std::min(255u, er + addR);
-                    const uint32_t g = std::min(255u, eg + addG);
-                    const uint32_t b = std::min(255u, eb + addB);
-
-                    atlas.Buffer().PutPixel(xx, yy, RGB(r, g, b));
-                }
-            }
-        }
-    }
-    */
+   
     template<class T>
     void ApplyRadiosityToAtlas(LightMapAtlas& atlas,
         const std::vector<RadiosityPatch<T>>& patches,
@@ -462,13 +421,24 @@ namespace ng::lightmap {
         return Vec3<T>(T(RGBToRed(px)), T(RGBToGreen(px)), T(RGBToBlue(px))) * (T(1) / T(255));
     }
 
-    // ------------------------------------------------------------
-    // ComputeBlockAlbedo
-    //
-    // Durchschnittliche Diffuse-Texturfarbe (0..1, geclampt) unter
-    // einem Lightmap-Texel-Block, per Multi-Sample (Texelmitten).
-    // ------------------------------------------------------------
-    // ------------------------------------------------------------
+    template<class T>
+    Vec3<T> ComputeBlockTextureColor(const ng::bsp::BSPPolygon<T>& poly,
+        int x0, int y0, int x1, int y1)
+    {
+        Vec3<T> sum(0, 0, 0);
+        int n = 0;
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x)
+            {
+                const T fu = (T(x) + T(0.5)) / T(poly.lmWidth);
+                const T fv = (T(y) + T(0.5)) / T(poly.lmHeight);
+                const Vec3<T> wp = poly.lmOrigin + poly.lmEdgeU * fu + poly.lmEdgeV * fv;
+                const auto uv = TexUVAtPoint(poly, wp);
+                sum = sum + SampleAlbedoAtUV(poly, uv.x(), uv.y());
+                ++n;
+            }
+        return n ? sum * (T(1) / T(n)) : Vec3<T>(0, 0, 0);
+    }
 // ComputeBlockAlbedo
 //
 // Durchschnittliche Diffuse-Texturfarbe (0..1) unter einem Lightmap-
@@ -633,6 +603,7 @@ namespace ng::lightmap {
                         directLight(1) * patch.albedo(1),
                         directLight(2) * patch.albedo(2));
 
+                    /*
                     Vec3<T> emission(0, 0, 0);
                     if (opt.textureEmissionStrength > T(0))
                     {
@@ -641,6 +612,17 @@ namespace ng::lightmap {
                             patch.albedo(1) * T(255) * opt.textureEmissionStrength,
                             patch.albedo(2) * T(255) * opt.textureEmissionStrength);
                     }
+                    */
+
+                    Vec3<T> emission(0, 0, 0);
+                    if (opt.textureEmissionStrength > T(0))
+                    {
+                        const Vec3<T> raw = ComputeBlockTextureColor(poly, x0, y0, x1, y1);
+                        emission = raw * (T(255) * opt.textureEmissionStrength);
+                    }
+
+
+
 
                     patch.residual = reflected + emission;
                     patch.accumulated = Vec3<T>(0, 0, 0);
@@ -692,6 +674,47 @@ namespace ng::lightmap {
     // ------------------------------------------------------------
     // CosineWeightedHemisphereSample  (unveraendert)
     // ------------------------------------------------------------
+    /*
+    template<class T>
+    Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, double u1, double u2)
+    {
+        const double r = std::sqrt(u1);
+        const double theta = 2.0 * 3.14159265358979323846 * u2;
+        const double lx = r * std::cos(theta);
+        const double ly = r * std::sin(theta);
+        const double lz = std::sqrt(std::max(0.0, 1.0 - u1));
+
+        Vec3<T> axis(0, 0, 0);
+        if (std::abs(normal(0)) <= std::abs(normal(1)) && std::abs(normal(0)) <= std::abs(normal(2))) axis(0) = T(1);
+        else if (std::abs(normal(1)) <= std::abs(normal(2))) axis(1) = T(1);
+        else axis(2) = T(1);
+
+        Vec3<T> tangent = axis % normal; tangent.normalize();
+        Vec3<T> bitangent = normal % tangent; bitangent.normalize();
+        return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
+    }
+    */
+    template<class T>
+    Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, double u1, double u2)
+    {
+        const double r = std::sqrt(u1);
+        const double theta = 2.0 * 3.14159265358979323846 * u2;
+
+        const double lx = r * std::cos(theta);
+        const double ly = r * std::sin(theta);
+        const double lz = std::sqrt(std::max(0.0, 1.0 - u1));
+
+        Vec3<T> axis(0, 0, 0);
+        if (std::abs(normal(0)) <= std::abs(normal(1)) && std::abs(normal(0)) <= std::abs(normal(2))) axis(0) = T(1);
+        else if (std::abs(normal(1)) <= std::abs(normal(2))) axis(1) = T(1);
+        else axis(2) = T(1);
+
+        Vec3<T> tangent = axis % normal; tangent.normalize();
+        Vec3<T> bitangent = normal % tangent; bitangent.normalize();
+
+        return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
+    }
+    /*
     template<class T>
     Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, std::mt19937& rng)
     {
@@ -716,7 +739,7 @@ namespace ng::lightmap {
 
         return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
     }
-
+    */
     // ------------------------------------------------------------
     // FindPatchForHit
     //
@@ -754,9 +777,17 @@ namespace ng::lightmap {
         return lookup.patchOffset[polyIdx] + by * bw + bx;
     }
 
+   
+
+
     // ------------------------------------------------------------
-    // RunRadiosityBounces
-    // ------------------------------------------------------------
+// RunRadiosityBounces
+//
+// Jacobi-Iteration ueber alle Patches. Pro Empfaenger werden
+// stratifizierte, cosinus-gewichtete Strahlen geschossen (n x n Raster
+// mit Jitter), jeder Treffer wird auf "maxSampleValue" begrenzt und das
+// Ergebnis anschliessend innerhalb des Polygons geglaettet.
+// ------------------------------------------------------------
     template<class T>
     void RunRadiosityBounces(std::vector<RadiosityPatch<T>>& patches,
         const ng::bsp::BSPTree<T>& occlusionTree,
@@ -765,39 +796,61 @@ namespace ng::lightmap {
         const RadiosityOptions<T>& opt)
     {
         std::mt19937 rng(opt.randomSeed);
+        std::uniform_real_distribution<double> jit(0.0, 1.0);
         std::vector<Vec3<T>> incoming(patches.size());
+
+        // Stratifiziertes Raster: n x n Zellen
+        const int n = std::max(1, (int)std::ceil(std::sqrt((double)std::max(1, opt.samplesPerPatch))));
+        const int totalSamples = n * n;
+        const T invTotal = T(1) / T(totalSamples);
+        const T maxSample = T(opt.maxSampleValue);
 
         for (int bounce = 0; bounce < opt.bounces; ++bounce)
         {
-            int totalRays = 0, totalHits = 0;
+            long long totalRays = 0, totalHits = 0;
 
             for (size_t i = 0; i < patches.size(); ++i)
             {
                 const auto& receiver = patches[i];
                 Vec3<T> sum(0, 0, 0);
-                int hits = 0;
 
-                for (int s = 0; s < opt.samplesPerPatch; ++s)
+                for (int sy = 0; sy < n; ++sy)
                 {
-                    ++totalRays;
-                    const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, rng);
+                    for (int sx = 0; sx < n; ++sx)
+                    {
+                        ++totalRays;
 
-                    auto hit = BSPRayNearestHit(occlusionTree, receiver.center, dir,
-                        (T)opt.maxRayDistance, (T)opt.epsilon);
+                        const double u1 = (sx + jit(rng)) / n;
+                        const double u2 = (sy + jit(rng)) / n;
+                        const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, u1, u2);
 
-                    if (!hit.hit) continue;
-                    ++totalHits;
+                        auto hit = BSPRayNearestHit(occlusionTree, receiver.center, dir,
+                            (T)opt.maxRayDistance, (T)opt.epsilon);
 
-                    const Vec3<T> hitPoint = receiver.center + dir * hit.t;
-                    const int patchIdx = FindPatchForHit(hit, hitPoint, occluderPolys, lookup, opt.blockSize);
-                    if (patchIdx < 0 || (size_t)patchIdx >= patches.size()) continue;
+                        if (!hit.hit) continue;
+                        ++totalHits;
 
-                    sum = sum + patches[patchIdx].residual;
-                    ++hits;
+                        const Vec3<T> hitPoint = receiver.center + dir * hit.t;
+                        const int patchIdx = FindPatchForHit(hit, hitPoint, occluderPolys, lookup, opt.blockSize);
+                        if (patchIdx < 0 || (size_t)patchIdx >= patches.size()) continue;
+
+                        // Firefly-Clamp: max. Kanal begrenzen, Farbton erhalten
+                        Vec3<T> r = patches[patchIdx].residual;
+                        const T m = std::max({ r(0), r(1), r(2) });
+                        if (maxSample > T(0) && m > maxSample)
+                            r = r * (maxSample / m);
+
+                        sum = sum + r;
+                    }
                 }
 
-                incoming[i] = (hits > 0) ? (sum * (T(1) / T(opt.samplesPerPatch))) : Vec3<T>(0, 0, 0);
+                // Cosinus-gewichtetes Sampling: Mittelwert der Treffer-Radiosity
+                incoming[i] = sum * invTotal;
             }
+
+            // Rauschen im Patch-Raum glaetten (nur innerhalb eines Polygons)
+            for (int b = 0; b < opt.blurPasses; ++b)
+                BlurIncoming(incoming, lookup);
 
             for (size_t i = 0; i < patches.size(); ++i)
             {
@@ -808,13 +861,19 @@ namespace ng::lightmap {
                     incoming[i](2) * patches[i].albedo(2));
             }
 
-            printf("[Radiosity] Bounce %d / %d: Hit-Rate %d/%d (%.1f%%), Patches=%zu\n",
+            printf("[Radiosity] Bounce %d / %d: Hit-Rate %lld/%lld (%.1f%%), Patches=%zu\n",
                 bounce + 1, opt.bounces, totalHits, totalRays,
                 totalRays > 0 ? 100.0 * totalHits / totalRays : 0.0, patches.size());
         }
     }
 
-   
+
+
+
+
+
+
+
 
   
    // ------------------------------------------------------------

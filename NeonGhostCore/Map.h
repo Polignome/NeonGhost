@@ -257,10 +257,10 @@ namespace ng {
 
 					if (p.name == "face_render")
 					{
-						uint32_t v = std::stoi(p.values[0]);
-						bool on = v > 0;
+						float v = std::stof(p.values[0]);
+						
 
-					   settings.translucent = on;
+					   settings.translucent = v;
 					}
 					if (p.name == "linked_to_id")
 					{
@@ -274,6 +274,14 @@ namespace ng {
 						bool on = v > 0;
 						settings.id = v;
 					}
+					
+
+						if (p.name == "wobble")
+						{
+							
+
+							settings.wobble = std::stof(p.values[0]);
+						}
 					if (p.name == "spawnflags")
 					{
 						uint32_t v = std::stoi(p.values[0]);

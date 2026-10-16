@@ -135,6 +135,21 @@ namespace ng::renderer::rasterizer
         return (0xffu << 24) | (enc(x) << 16) | (enc(y) << 8) | enc(z);
     }
 
+    template<class T>
+    inline ng::math::Matrix<3, 1, T> UnpackNormal(uint32_t packed)
+    {
+        auto dec = [](uint32_t v) -> T
+            {
+                return (T(v) / (T)255) * (T)2 - (T)1;
+            };
+
+        T x = dec((packed >> 16) & 0xffu);
+        T y = dec((packed >> 8) & 0xffu);
+        T z = dec(packed & 0xffu);
+
+        return ng::math::Matrix<3, 1, T>(x, y, z);
+    }
+
     // -------------------------------------------------------------
     // Textur-View: keine eigene Ressourcenverwaltung, nur ein
     // schreibgeschuetzter Blick auf existierende Pixeldaten
@@ -249,7 +264,10 @@ namespace ng::renderer::rasterizer
         RASTER_WRITE_NORMAL = 1u << 6,
         RASTER_WRITE_INDEX = 1u << 7,
        // RASTER_WOBBLE = 1 << 1u << 8 // Nur beim spanrenderer
-        RASTER_DEPTH_CLEAR = 1 << 1u << 8
+//        RASTER_DEPTH_CLEAR = 1 << 1u << 8,
+        RASTER_DEPTH_CLEAR =  1u << 8,
+        RASTER_WARP = 1u << 9,
+        RASTER_WARP_SCREEN = 1u << 10
     };
 
     struct LightmapCorrection
@@ -314,7 +332,11 @@ namespace ng::renderer::rasterizer
         T dV_dx = 0;
         T dV_dy = 0;
 
+        T warpAmp = T(0.03);   // Amplitude in UV-Einheiten (Quake: ca. 1/8 der Textur)
+        T warpFreq = T(8.0);    // Wellen pro UV-Einheit (Radiant)
+        T warpTime = T(0);      // Sekunden
 
+        T warpScreenFreq = T(0.06);
     };
 
     // ===============================================================
@@ -346,21 +368,21 @@ namespace ng::renderer::rasterizer
         return std::isfinite((double)result) ? result : T(0);
     }
     
-    /*
+  
     template<class T>
-    inline T PerspectiveDerivative(
-        T value,
-        T invW,
-        T dValue,
-        T dInvW)
+    inline T WarpSin(T x)
     {
-        T invW2 = invW * invW;
-
-        return (dValue * invW - value * dInvW) * invW2;
+        static float table[1024];
+        static bool init = false;
+        if (!init)
+        {
+            for (int i = 0; i < 1024; ++i)
+                table[i] = std::sin(i * 6.28318530718f / 1024.f);
+            init = true;
+        }
+        const int i = (int)std::floor((double)x * (1024.0 / 6.28318530718));
+        return (T)table[i & 1023];
     }
-    */
-
-
    
 
     template<class T>
@@ -369,8 +391,28 @@ namespace ng::renderer::rasterizer
         if (!st.diffuseTex)
             return 0xffff00ffu;
 
+        
+        T u = f.u, v = f.v;
+        if (st.flags & RASTER_WARP)
+        {
+            
+            const T t = st.warpTime * T(2);
+            const T ou = u, ov = v;
+            u = ou + st.warpAmp * WarpSin<T>(ov * st.warpFreq + t);
+            v = ov + st.warpAmp * WarpSin<T>(ou * st.warpFreq + t * T(1.15));
+        }
+
+        if (st.flags & RASTER_WARP_SCREEN)
+        {
+            const T t = st.warpTime * T(2);
+            const T ou = u, ov = v;
+            u = ou + st.warpAmp * WarpSin<T>((T)f.y * st.warpScreenFreq + t);
+            v = ov + st.warpAmp * WarpSin<T>((T)f.x * st.warpScreenFreq + t * T(1.15));
+        }
+
         int mip = st.diffuseTex->SelectMipLevel(f.dudx, f.dvdx, f.dudy, f.dvdy);
-        uint32_t tex = st.diffuseTex->SampleNearestLevel(f.u, f.v, mip);
+//        uint32_t tex = st.diffuseTex->SampleNearestLevel(f.u, f.v, mip);
+        uint32_t tex = st.diffuseTex->SampleNearestLevel(u, v, mip);
 
         uint32_t tr = RGBToRed(tex);
         uint32_t tg = RGBToGreen(tex);
@@ -393,50 +435,7 @@ namespace ng::renderer::rasterizer
         return RGBA(tr, tg, tb, ta);
     }
    
-        /*
-        template<class T>
-        inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
-        {
-            
-                        
-            uint32_t base = ColorTexture(f, st);
-            if (!st.lightmapTex) return base;
-            // WICHTIG: Lightmap immer auf Mip-Level 0 sampeln, NIE automatisch
-            // hochstufen. Der Atlas packt viele voneinander unabhaengige
-            // Polygon-Patches nebeneinander; eine Mip-Kette wuerde beim
-            // 2x2-Boxfilter Texel benachbarter, thematisch fremder Patches
-            // vermischen ("Bleeding"), sobald ein Patch an der Atlas-Nahtstelle
-            // liegt. Level 0 ist bei Lightmaps unkritisch, da sie ohnehin schon
-            // niedrig aufgeloest und weichgezeichnet sind.
-            
-            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv,0);
-          //  base = lm;
-            
-            uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
-            uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
-            uint32_t r = std::min(255u, (br * lr) / 255u);
-            uint32_t g = std::min(255u, (bg * lg) / 255u);
-            uint32_t b = std::min(255u, (bb * lb) / 255u);
-            return (ba << 24) | (r << 16) | (g << 8) | b;
-        }
-        
-        /*
-    template<class T>
-    inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
-    {
-        uint32_t base = ColorTexture(f, st);
-        auto mipl = st.lightmapTex->SelectMipLevel(f.dudx, f.dvdx, f.dudy, f.dvdy);
-        uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, mipl);
-        //uint32_t lm = st.lightmapTex->SampleNearest(f.fxu, f.fxv);
-        
-        uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
-        uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
-        uint32_t r = std::min(255u, (br * lr) / 255u);
-        uint32_t g = std::min(255u, (bg * lg) / 255u);
-        uint32_t b = std::min(255u, (bb * lb) / 255u);
-        return (ba << 24) | (r << 16) | (g << 8) | b;
-    }
-    */
+      
 
         template<class T>
         inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
@@ -936,3 +935,4 @@ namespace ng::renderer::rasterizer
     }
 
 } // namespace ng::renderer::raster
+

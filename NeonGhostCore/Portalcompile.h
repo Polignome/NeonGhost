@@ -91,9 +91,15 @@ namespace ng
 
                 WarpPortal<T> w;
                 w.id = (int32_t)cfg.id;
+                
+                
+                w.seeThrough = static_cast<float>(std::clamp(static_cast<T>(cfg.translucent), T(0), T(1)));
+                w.wobble = cfg.wobble;
                 w.flags = (cfg.teleport ? WARP_TELEPORT : 0u)
-                    | ((cfg.visible && cfg.translucent) ? WARP_RENDER : 0u);
+                    | ((cfg.visible && cfg.translucent > 0.0f) ? WARP_RENDER : 0u);
+
                 w.plane = face.plane();
+
                 for (const auto& v : face.verts()) w.verts.push_back(v.world());
 
                 Vec3 fc(0, 0, 0);
@@ -227,3 +233,4 @@ namespace ng
         }
     } // namespace bsp
 } // namespace ng
+

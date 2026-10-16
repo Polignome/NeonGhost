@@ -1,5 +1,4 @@
 ﻿#include <cmath>
-
 #include "imgui.h"
 #include <vector>
 #include <string>
@@ -26,14 +25,13 @@
 #include <Radiosity.h>
 #include "MapCompiler.h"
 
-#pragma comment(lib,"SDL2.lib")
-#pragma comment(lib,"SDL2main.lib")
+#pragma comment(lib, "SDL2.lib")
+#pragma comment(lib, "SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "NeonGhostCore.lib")
 #pragma comment(lib, "FreeImage.lib")
-
 
 NG_BIND_MANAGER
 
@@ -53,12 +51,6 @@ static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
 
 static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
-
-
-// static auto* water = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
-
-// static auto* fog = mgr.AddEffect<ng::renderer::postfx::DepthFogEffect<NG_MATH_FLOAT>>();
-//static auto* snow =mgr.AddEffect < ng::renderer::postfx::SnowEffect<NG_MATH_FLOAT>>();
 
 
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
@@ -114,7 +106,6 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
     return "";
 }
 
-
 void LoadMapReady(bool error, BspScene<NG_MATH_FLOAT>&& scene) {
     if (error) {
         std::cout << "Error loading map" << std::endl;
@@ -149,6 +140,7 @@ inline void Render() {
     }
 
 
+    m_render_pipeline_3d.SetTime(totalTime);
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
     m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
@@ -158,6 +150,7 @@ inline void Render() {
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
      
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
+    m_rasterizer_3d.GetNormalBuffer().Clear(RGB(255, 0, 0));
 
     m_render_pipeline_3d.ModelViewMatrix() = m_camera.ViewMatrix();
     m_render_pipeline_3d.ProjectionMatrix() = m_camera.ProjectionMatrix();
@@ -166,6 +159,7 @@ inline void Render() {
     m_fps_counter.Update();
     m_render_pipeline_3d.Begin();
      
+
         m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
 
@@ -186,9 +180,9 @@ inline void Render() {
     for (auto m : m_mesh_obj)
         m_render_pipeline_3d.RenderMesh(m);
 
-
     m_render_pipeline_3d.End();
        
+
 
 //    if (m_use_after_fx)mgr.Apply(totalTime);
     if (medium & ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID) mgr.Apply(totalTime);
@@ -331,7 +325,7 @@ void InitStuff() {
 
 
     // compiler settings
-    lmOpt.buildDirectLight = m_build_lightmaps;
+   // lmOpt.buildDirectLight = m_build_lightmaps;
     lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
     lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
     lmOpt.maxAtlasSize = 8192;
@@ -340,7 +334,7 @@ void InitStuff() {
     lmOpt.coverageMargin = 1.0;
 
 
-    radOpt.buildDirectRadiosity = m_build_radiosity;
+    //radOpt.buildDirectRadiosity = m_build_radiosity;
     radOpt.bounces = 4;
     radOpt.samplesPerPatch = 32;
     radOpt.blockSize = 2;
@@ -489,13 +483,16 @@ int main(int argc, char** argv) {
             }
 
             if (ImGui::BeginMenu("Compiler")) {
-                if (ImGui::MenuItem("Lighmaps", 0, m_build_lightmaps)) m_build_lightmaps = !m_build_lightmaps;
+             //   if (ImGui::MenuItem("Lighmaps", 0, m_build_lightmaps)) m_build_lightmaps = !m_build_lightmaps;
                 
-                if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity)) m_build_radiosity = !m_build_radiosity;
-				ImGui::Separator();
+               // if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity)) m_build_radiosity = !m_build_radiosity;
+				//ImGui::Separator();
 				if (ImGui::MenuItem("Compiler Setup")) m_compiler_setting_window = true;
                 ImGui::EndMenu();
             }
+
+
+
             if (ImGui::BeginMenu("Tools")) {
                 bool temp = m_tools_font_window;
                 if (ImGui::MenuItem("View Font")) m_tools_font_window = true;
@@ -533,7 +530,11 @@ int main(int argc, char** argv) {
                     if (ImGui::MenuItem("Renderer Debug", 0, &temp)) m_3d_info_window_visible = !m_3d_info_window_visible;
                     temp = m_masked_occlusion_buffer_window_visible;
                     if (ImGui::MenuItem("Masked Occlusion Buffer", 0, &temp)) m_masked_occlusion_buffer_window_visible = !m_masked_occlusion_buffer_window_visible;
+                    temp = m_normal_window_visible;
+                    if (ImGui::MenuItem("Normal Buffer", 0, &temp)) m_normal_window_visible = !m_normal_window_visible;
                     ImGui::EndMenu();
+                                    
+                
                 }
                 ImGui::EndMenu();
 
@@ -551,7 +552,7 @@ int main(int argc, char** argv) {
                         ImGui::EndMainMenuBar();
             
         }
-
+         
 
                         
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
@@ -559,6 +560,7 @@ int main(int argc, char** argv) {
         if (m_tools_font_window) ng::gui::ShowFontViewer(m_tools_font_window);
         if (m_view_render_window) RenderWindow(m_view_render_window);
         if (m_HZB_window_visible) HierarchicalZBufferWindow(m_HZB_window_visible);
+        if (m_normal_window_visible) NormalBufferWindow(m_normal_window_visible);
         if (m_2d_demo_window_visible) Render2DWindow(m_2d_demo_window_visible);
         if (m_sprite_demo_window_visible) RenderSpriteWindow(m_sprite_demo_window_visible);
         if (m_animatet_sprite_demo_window_visible) RenderBouncingSpritesDemo(m_animatet_sprite_demo_window_visible);
@@ -569,16 +571,17 @@ int main(int argc, char** argv) {
         if (m_3d_info_window_visible)RenderDebugInfoWindow(m_3d_info_window_visible);
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
         if (m_compiler_setting_window) RenderCompilerSetupWindow(m_compiler_setting_window, radOpt, lmOpt, vo, po);
+
         if (m_load_hlm) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
 			
 
-
                 //m_map_compiler.setCompleteCallback(LoadMapReady);
                 //m_map_compiler.start(filename,po,vo, lmOpt,radOpt );
 
                 Compile(filename, po, vo, lmOpt, radOpt, m_bsp_scene);
+                m_player.SetWarpPortals(&m_bsp_scene.m_warpPortals);
 
                 ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
                 m_bsp_scene.m_lightmap.Resize(0, 0);

@@ -409,13 +409,14 @@ namespace ng {
 			bool visible = true;	
 			// translucent nur wichtig wenn visible=true
 			// translucent = true wird alles gerendert was das verlinkte portal face sieht (Texture ~teleport).   
-			bool translucent = true;
+			float translucent = 1.0f;   // 0 = nur Textur, 1 = volle Durchsicht, dazwischen Mischung
             // teleport = false nur sehen ; teleport true objekte und spieler wird telepotiert
 			bool teleport = true;
 			// id Portalid
 			uint32_t id = 0;
 			// linked_id id des verlinkten portals
 			uint32_t linked_id = 0;
+			float wobble = 0.0f;       // NEU: 0 = aus, typisch 0.005 .. 0.02
 		};
 
 

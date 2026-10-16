@@ -193,6 +193,11 @@ namespace ng
 
             explicit BSPCollision(BSPTree<T>& tree) : m_tree(tree) {}
 
+            bool portalsWalkable = true;
+
+            // Noetig, damit portalId -> WarpPortal aufgeloest werden kann
+            void SetWarpPortals(const std::vector<WarpPortal<T>>* w) { m_warps = w; }
+
             // --------------------------------------------------------
             // MoveEllipsoid
             //
@@ -345,6 +350,7 @@ namespace ng
                         for (const auto& poly : leaf->GetPolygons())
                         {
                             if (poly.verts.size() < 3) continue;
+                            if (IsWalkablePortal(poly)) continue;
 
                             if (frontFacingOnly && poly.plane.distance(center) < T(0))
                                 continue;
@@ -367,6 +373,8 @@ namespace ng
         private:
             BSPTree<T>& m_tree;
 
+
+
             struct Tri
             {
                 Vec3 p[3];      // Eckpunkte im Ellipsoid-Raum
@@ -384,6 +392,19 @@ namespace ng
                 T nearest = T(0);
                 Vec3 ip;        // Beruehrpunkt
             };
+
+            const std::vector<WarpPortal<T>>* m_warps = nullptr;
+
+            // true, wenn das Polygon eine begehbare Portalflaeche ist
+            inline bool IsWalkablePortal(const BSPPolygon<T>& poly) const
+            {
+                if (!portalsWalkable || !m_warps) return false;
+                if (!(poly.flags & POLY_FLAG_PORTAL)) return false;
+                if (poly.portalId < 0 || (size_t)poly.portalId >= m_warps->size()) return false;
+
+                const auto& w = (*m_warps)[poly.portalId];
+                return (w.flags & WARP_TELEPORT) && w.partner >= 0;
+            }
 
             // Baum durchlaufen: Zellen, die von der Kugel/Box um "center" beruehrt werden.
             // extentFn(planeNormal) liefert die Ausdehnung des Koerpers entlang der Normale.
@@ -445,6 +466,7 @@ namespace ng
                         for (const auto& poly : leaf->GetPolygons())
                         {
                             if (poly.verts.size() < 3) continue;
+                            if (IsWalkablePortal(poly)) continue;
 
                             Vec3 pmn = poly.verts[0].world();
                             Vec3 pmx = pmn;

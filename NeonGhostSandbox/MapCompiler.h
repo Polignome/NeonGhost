@@ -93,6 +93,12 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         std::vector<ng::bsp::BSPPolygon<T>> unused;
         scene.m_warpPortals = BuildWarpPortals<T>(portal_brushes, isTeleportTex, unused, Vec3(0, 1, 0));
 
+        for (auto& pb : portal_brushes)
+            printf("[Portal] id=%u translucent=%.2f\n", pb.PortalSetting().id, (double)pb.PortalSetting().translucent);
+        for (auto& w : scene.m_warpPortals)
+            printf("[Portal] warp id=%d see=%.2f flags=%u\n", w.id, (double)w.seeThrough, w.flags);
+
+
         // PORTAL: Map-ID -> Index in m_warpPortals
         std::unordered_map<int32_t, int32_t> idToIndex;
         for (size_t i = 0; i < scene.m_warpPortals.size(); ++i)
@@ -161,12 +167,14 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
             }
         }
 
+
+        
         printf("[MapCompiler] %zu Warp-Portale, %zu Portal-Fragment-Dreiecke\n",
             scene.m_warpPortals.size(), portalPolyCount);
         for (size_t i = 0; i < scene.m_warpPortals.size(); ++i)
         {
             const auto& w = scene.m_warpPortals[i];
-            printf("Portal[%zu] id=%d partner=%d flags=%u\n", i, w.id, w.partner, w.flags);
+            printf("[MapCompiler] Portal[%zu] id=%d partner=%d flags=%u Durchlässigkeit %.2f%%\n", i, w.id, w.partner, w.flags, w.seeThrough);
         }
         printf("[MapCompiler] Extracted %zu solid faces and %zu liquid faces\n",
             soild_faces.size(), liquit_faces.size());
@@ -175,7 +183,12 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         auto sky = ng::bsp::GenerateSkyboxPolygons(aabb, (T)100);
         for (auto p : sky) polys.push_back(p);
 
+
+        ng::bsp::SmoothNormals(polys);
+
+
         scene.m_bsp.Build(polys);
+        scene.m_bsp.FixTJunctions();
         scene.m_bsp.InsertExtraPolygons(extra_polys);
         scene.m_bsp.BuildPortals();
 
@@ -208,7 +221,7 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         scene.m_cells.Build(visible, vo);
         scene.m_cells.InsertExtraPolygons(visibleextra);
         scene.m_pvs.Build(scene.m_cells.Tree(), po);
-
+        
         // PORTAL: Sicht DURCH ein Portal = PVS der Zelle direkt vor dem Partner (B)
         for (auto& wp : scene.m_warpPortals)
         {

@@ -27,6 +27,7 @@ static bool m_compiler_setting_window = false;
 static bool m_view_render_fullscreen = true;
 static bool m_masked_occlusion_buffer_window_visible = false;
 static bool m_HZB_window_visible = false;
+static bool m_normal_window_visible = false;
 static bool m_2d_demo_window_visible = false;
 static bool m_sprite_demo_window_visible = false;
 static bool m_animatet_sprite_demo_window_visible = false;
@@ -34,16 +35,16 @@ static bool m_postfx_demo_window_visible = false;
 static bool m_image_demo_window_visible = false;
 static bool m_resource_window_visible = false;
 static bool m_3d_info_window_visible = false;
-static bool m_use_spanbuffer = false;
 static bool m_use_lod = false;
 static bool m_use_after_fx = false;
 static bool m_use_tile_base_rendering = true;
 static bool m_use_collision = false;
 static bool m_use_lightmap = true;
+
+
+
 static size_t m_num_visible_leafs = 0;
 static size_t m_num_bsp_leafs = 0;
-static bool m_build_lightmaps = false;
-static bool m_build_radiosity = false;
 
 static float m_max_fps = 0;
 static std::vector<float> m_fps_count;
@@ -550,36 +551,6 @@ inline void RenderBouncingSpritesDemo(bool& visible)
     m_soft_renderer.Update(m_soft_renderer_buffer.GetRawBuffer());
 
 
-    /*
-    bool open = true;
-
-
-
-    if (ImGui::Begin("Bouncing Sprites Demo", &open,
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar))
-    {
-
-        if (ImGui::BeginMenuBar()) {
-            if (ImGui::BeginMenu("Mode"))
-            {
-                 if (ImGui::MenuItem("Sprites", "", render_sprites)) render_sprites = !render_sprites;
-                if (ImGui::MenuItem("KDTree Node conections", "", render_conections)) render_conections = !render_conections;
-                if (ImGui::MenuItem("KDTree Node Partions ", "", render_partions)) render_partions = !render_partions;
-                ImGui::EndMenu();
-
-            }
-
-            ImGui::EndMenuBar();
-        }
-
-        ImVec2 cpos1 = ImGui::GetCursorPos();
-        ImVec2 rsize((float)m_soft_renderer.Width(), (float)m_soft_renderer.Height());
-        ImGui::SetWindowSize(ImVec2(rsize.x + 20, rsize.y + 10 + cpos1.y));
-        ImGui::Image(m_soft_renderer.GetImTextureID(), rsize);
-        ImGui::SetCursorPos(cpos1);
-  //      ImGui::Text("Sprites: %d  |  dt: %.3f ms", (int)sprites.size(), dt * 1000.0f);
-
-  */
 
     float menuBarHeight = ImGui::GetFrameHeightWithSpacing();
     ImVec2 rsize((float)m_soft_renderer.Width(), (float)m_soft_renderer.Height());
@@ -858,8 +829,8 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
                     mng_name = n->GetName();
                 }
             }
-            ImGui::EndChild();
-        }
+            
+        }ImGui::EndChild();
         static std::string res_name = "";
 
         if (mng_name != old_name) {
@@ -882,8 +853,8 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
                 
                 }
             }
-            ImGui::EndChild();
-        }
+            
+        }ImGui::EndChild();
         ImGui::SameLine();
 
        
@@ -894,9 +865,9 @@ inline void ResourcemanagerWindow(bool& m_software_renderer_visible)
 
            if (mng_name == "IMAGE_RESOURCE") ViewImageRes(res_name);
            if (mng_name == "TEXTURE_RESOURCE") ViewTextureRes(res_name);
-           ImGui::EndChild();
+           
 
-        }
+        }ImGui::EndChild();
     }
     ImGui::End();
 
@@ -1235,6 +1206,48 @@ inline void addValue(std::vector<float>& data, float value, size_t maxSize = 100
         data.pop_back();
 }
 
+inline void NormalBufferWindow(bool& normal_window_visible)
+{
+
+    auto nbuf = m_rasterizer_3d.GetNormalBuffer();
+    static RenderPixelbuffer m_normal_renderer(nbuf.Width(), nbuf.Height());
+    static int level = 0;
+    static bool scale = true;
+
+
+
+    m_normal_renderer.Update(nbuf.GetRawBuffer());
+
+
+
+    if (ImGui::Begin(
+        "Normalbuffer",
+        &normal_window_visible,
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar))
+    {
+
+        ImVec2 cpos1 = ImGui::GetCursorPos();
+
+        ImVec2 wsize((float)nbuf.Width(), (float)nbuf.Height());
+        
+
+
+        ImVec2 rr = ImGui::GetWindowContentRegionMin();
+
+        ImGui::SetWindowSize(
+            ImVec2(
+                wsize.x + 20,
+                wsize.y + 10 + cpos1.y));
+
+
+        ImGui::Image(m_normal_renderer.GetImTextureID(), wsize);
+        ImGui::End();
+
+    }
+
+}
+
+
 template <class T>
 struct Object3D {
     std::vector<ng::geometry::Primitive<3, T>> polys;
@@ -1480,6 +1493,10 @@ inline void AddRenderMenuSubMenue() {
     }
     if (ImGui::BeginMenu("Physics")) {
         if (ImGui::MenuItem("Use collision", "", m_use_collision)) m_use_collision = !m_use_collision;
+        ImGui::Separator();
+        ImGui::InputDouble("Radius X:", &m_player.Radius().x(), 2, 8, "%.0f");
+        ImGui::InputDouble("Radius Y:", &m_player.Radius().y(), 2, 8, "%.0f");
+        ImGui::InputDouble("Radius Z:", &m_player.Radius().z(), 2, 8, "%.0f");
         ImGui::EndMenu();
     }
     
@@ -1581,33 +1598,54 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     // Einmalig: Player an der aktuellen Kameraposition "einklinken".
     if (!m_player.IsInitialized())
     {
-        m_player.Init(m_camera.position(), /*eyeHeight*/ 28.0f);
+        m_player.Init(m_camera.position(), /*eyeHeight*/ 28.0f,m_player.Radius());
         m_player.SetGravity(ng::math::Matrix<3,1, NG_MATH_FLOAT>(0, -800, 0));   // simulierte Erdanziehung zum Testen
     }
+
+    m_player.SetEnabled(m_use_collision);
+    
 
     m_player.SetEnabled(m_use_collision);
 
     if (m_use_collision)
     {
-        // Kollision aktiv: Ellipsoid + Gravitationsvektor, Bewegung/Position
-        // werden intern gegen den BSP getestet und setzen die Kamera selbst.
         if (speedup) {
             wishRight *= 5;
             wishForward *= 5;
         }
+
+        // Auge VOR dem Update merken (Rotation ist noch die alte)
+        const auto f0 = m_camera.forward();
+
         m_player.Update(m_camera, dt, wishRight, wishForward, wishJump);
+
+        if (m_player.Teleported())
+        {
+            const auto f1 = m_player.LastLook();   // gewarptes forward()
+
+            const float yaw0 = std::atan2((float)f0(0), (float)f0(2));
+            const float yaw1 = std::atan2((float)f1(0), (float)f1(2));
+
+            const float PI = 3.14159265f;
+            float d = yaw1 - yaw0;
+            while (d > PI) d -= 2.0f * PI;
+            while (d < -PI) d += 2.0f * PI;
+
+            // Nur Yaw drehen, Pitch bleibt unveraendert
+            cam_controller.Turn(m_camera, 0.0f, d * 57.2957795f);
+        }
     }
     else
     {
-        // Kollision aus: exakt dein bisheriges freies Fliegen.
+        // Kollision aus: freies Fliegen wie bisher
         float speed = 5.0f;
         if (speedup) speed *= 2;
         if (wishForward != 0.0f) cam_controller.Move(m_camera, 0, wishForward * speed, 0);
         if (wishRight != 0.0f) cam_controller.Move(m_camera, wishRight * speed, 0, 0);
 
-        // Player-Zustand synchron halten, damit beim Umschalten auf "Kollision an"
-        // keine alte Position/Geschwindigkeit uebernommen wird.
-        m_player.Init(m_camera.position(), 28.0f);
+        // Player-Zustand synchron halten (Augenposition, nicht Fuesse!)
+        m_player.InitFromEye(m_camera.position(), 28.0f);
+        // kein Teleported-Block und kein yawPitch-Lambda mehr noetig
     }
 
     for (auto& m : m_mesh_obj) {
@@ -1669,9 +1707,6 @@ inline void RenderWindow(bool& m_software_renderer_visible)
     }
 }
 
-
-
-
 template<class T>
 inline void DrawLightingVisSetup(
     ng::lightmap::RadiosityOptions<T>& radiosity,
@@ -1679,156 +1714,86 @@ inline void DrawLightingVisSetup(
     ng::bsp::VisCellOptions<T>& visCell,
     ng::bsp::PVSOptions<T>& pvs)
 {
+
+
+
+
+
     // ================================================================
-    // RADIOSITY
+    // PVS
     // ================================================================
-    if (ImGui::CollapsingHeader("Radiosity", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("PVS", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::Checkbox(
-            "Build Direct Radiosity",
-            &radiosity.buildDirectRadiosity);
-
-        ImGui::InputInt(
-            "Bounces",
-            &radiosity.bounces);
-
-        ImGui::InputInt(
-            "Samples per Patch",
-            &radiosity.samplesPerPatch);
-
-        ImGui::InputDouble(
-            "Max Ray Distance",
-            &radiosity.maxRayDistance,
-            64.0,
-            512.0,
-            "%.3f");
-
-        ImGui::InputDouble(
-            "Epsilon",
-            &radiosity.epsilon,
-            0.001,
-            0.01,
-            "%.6f");
-
-        int seed = static_cast<int>(radiosity.randomSeed);
-
-        if (ImGui::InputInt(
-            "Random Seed",
-            &seed))
-        {
-            if (seed < 0)
-                seed = 0;
-
-            radiosity.randomSeed =
-                static_cast<unsigned int>(seed);
-        }
-
-        ImGui::InputDouble(
-            "Ambient Floor",
-            &radiosity.ambientFloor,
-            0.01,
-            0.1,
-            "%.4f");
-
-        ImGui::InputDouble(
-            "Indirect Gain",
-            &radiosity.indirectGain,
-            0.1,
-            1.0,
-            "%.3f");
-
-        ImGui::InputInt(
-            "Block Size",
-            &radiosity.blockSize);
-
-        ImGui::InputDouble(
-            "Albedo Min",
-            &radiosity.albedoMin,
-            0.01,
-            0.1,
-            "%.3f");
-
-        ImGui::InputDouble(
-            "Albedo Max",
-            &radiosity.albedoMax,
-            0.01,
-            0.1,
-            "%.3f");
-
-        // textureEmissionStrength kann T=float/double sein
-        double emission =
-            static_cast<double>(radiosity.textureEmissionStrength);
+        double epsilon =
+            static_cast<double>(pvs.epsilon);
 
         if (ImGui::InputDouble(
-            "Texture Emission Strength",
-            &emission,
+            "Epsilon##3",
+            &epsilon,
             0.01,
             0.1,
-            "%.3f"))
+            "%.4f"))
         {
-            radiosity.textureEmissionStrength =
-                static_cast<T>(emission);
+            pvs.epsilon =
+                static_cast<T>(epsilon);
+        }
+
+        int threads =
+            static_cast<int>(pvs.threads);
+
+        if (ImGui::InputInt(
+            "Threads",
+            &threads))
+        {
+            if (threads < 0)
+                threads = 0;
+
+            pvs.threads =
+                static_cast<unsigned int>(threads);
+        }
+
+        ImGui::Checkbox(
+            "Verbose##1",
+            &pvs.verbose);
+
+        ImGui::Checkbox(
+            "Skip Void Leaves",
+            &pvs.skipVoidLeaves);
+
+        ImGui::Checkbox(
+            "Require Polygons In Component",
+            &pvs.requirePolygonsInComponent);
+
+        double minPortalArea =
+            static_cast<double>(pvs.minPortalArea);
+
+        if (ImGui::InputDouble(
+            "Min Portal Area",
+            &minPortalArea,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            pvs.minPortalArea =
+                static_cast<T>(minPortalArea);
+        }
+
+        double clipTolerance =
+            static_cast<double>(pvs.clipTolerance);
+
+        if (ImGui::InputDouble(
+            "Clip Tolerance",
+            &clipTolerance,
+            0.01,
+            0.1,
+            "%.4f"))
+        {
+            pvs.clipTolerance =
+                static_cast<T>(clipTolerance);
         }
     }
 
 
-    // ================================================================
-    // LIGHTMAP
-    // ================================================================
-    if (ImGui::CollapsingHeader("Lightmap", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        ImGui::Checkbox(
-            "Build Direct Light",
-            &lightmap.buildDirectLight);
-
-        ImGui::InputInt(
-            "Start Atlas Size",
-            &lightmap.startAtlasSize);
-
-        ImGui::InputInt(
-            "Max Atlas Size",
-            &lightmap.maxAtlasSize);
-
-        ImGui::InputDouble(
-            "Texel Density",
-            &lightmap.texelDensity,
-            0.5,
-            2.0,
-            "%.3f");
-
-        ImGui::InputInt(
-            "Max Lightmap Size",
-            &lightmap.maxLightmapSize);
-
-        ImGui::InputDouble(
-            "Epsilon",
-            &lightmap.epsilon,
-            0.001,
-            0.01,
-            "%.6f");
-
-        ImGui::InputDouble(
-            "Pack Efficiency",
-            &lightmap.packEfficiency,
-            0.01,
-            0.05,
-            "%.3f");
-
-        ImGui::InputInt(
-            "Ambient Floor",
-            &lightmap.kAmbientFloor);
-
-        ImGui::Checkbox(
-            "Only Covered Texels",
-            &lightmap.onlyCoveredTexels);
-
-        ImGui::InputDouble(
-            "Coverage Margin",
-            &lightmap.coverageMargin,
-            0.1,
-            0.5,
-            "%.3f");
-    }
 
 
     // ================================================================
@@ -1886,7 +1851,7 @@ inline void DrawLightingVisSetup(
             static_cast<double>(visCell.epsilon);
 
         if (ImGui::InputDouble(
-            "Epsilon",
+            "Epsilon##2",
             &epsilon,
             0.001,
             0.01,
@@ -1911,87 +1876,167 @@ inline void DrawLightingVisSetup(
         }
 
         ImGui::Checkbox(
-            "Verbose",
+            "Verbose##2",
             &visCell.verbose);
     }
 
 
+    
+
+    
+
     // ================================================================
-    // PVS
+    // LIGHTMAP
     // ================================================================
-    if (ImGui::CollapsingHeader("PVS", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Lightmap", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        double epsilon =
-            static_cast<double>(pvs.epsilon);
+        ImGui::Checkbox(
+            "Build Direct Light",
+            &lightmap.buildDirectLight);
 
-        if (ImGui::InputDouble(
-            "Epsilon",
-            &epsilon,
+        ImGui::InputInt(
+            "Start Atlas Size",
+            &lightmap.startAtlasSize);
+
+        ImGui::InputInt(
+            "Max Atlas Size",
+            &lightmap.maxAtlasSize);
+
+        ImGui::InputDouble(
+            "Texel Density",
+            &lightmap.texelDensity,
+            0.5,
+            2.0,
+            "%.3f");
+
+        ImGui::InputInt(
+            "Max Lightmap Size",
+            &lightmap.maxLightmapSize);
+
+        ImGui::InputDouble(
+            "Epsilon##1",
+            &lightmap.epsilon,
+            0.001,
             0.01,
-            0.1,
-            "%.4f"))
-        {
-            pvs.epsilon =
-                static_cast<T>(epsilon);
-        }
+            "%.6f");
 
-        int threads =
-            static_cast<int>(pvs.threads);
+        ImGui::InputDouble(
+            "Pack Efficiency",
+            &lightmap.packEfficiency,
+            0.01,
+            0.05,
+            "%.3f");
+
+        ImGui::InputInt(
+            "Ambient Floor##2",
+            &lightmap.kAmbientFloor);
+
+        ImGui::Checkbox(
+            "Only Covered Texels",
+            &lightmap.onlyCoveredTexels);
+
+        ImGui::InputDouble(
+            "Coverage Margin",
+            &lightmap.coverageMargin,
+            0.1,
+            0.5,
+            "%.3f");
+    }
+
+    // ================================================================
+    // RADIOSITY
+    // ================================================================
+    if (ImGui::CollapsingHeader("Radiosity", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::Checkbox(
+            "Build Direct Radiosity",
+            &radiosity.buildDirectRadiosity);
+
+        ImGui::InputInt(
+            "Bounces",
+            &radiosity.bounces);
+
+        ImGui::InputInt(
+            "Samples per Patch",
+            &radiosity.samplesPerPatch);
+
+        ImGui::InputDouble(
+            "Max Ray Distance",
+            &radiosity.maxRayDistance,
+            64.0,
+            512.0,
+            "%.3f");
+
+        ImGui::InputDouble(
+            "Epsilon",
+            &radiosity.epsilon,
+            0.001,
+            0.01,
+            "%.6f");
+
+        int seed = static_cast<int>(radiosity.randomSeed);
 
         if (ImGui::InputInt(
-            "Threads",
-            &threads))
+            "Random Seed",
+            &seed))
         {
-            if (threads < 0)
-                threads = 0;
+            if (seed < 0)
+                seed = 0;
 
-            pvs.threads =
-                static_cast<unsigned int>(threads);
+            radiosity.randomSeed =
+                static_cast<unsigned int>(seed);
         }
 
-        ImGui::Checkbox(
-            "Verbose",
-            &pvs.verbose);
-
-        ImGui::Checkbox(
-            "Skip Void Leaves",
-            &pvs.skipVoidLeaves);
-
-        ImGui::Checkbox(
-            "Require Polygons In Component",
-            &pvs.requirePolygonsInComponent);
-
-        double minPortalArea =
-            static_cast<double>(pvs.minPortalArea);
-
-        if (ImGui::InputDouble(
-            "Min Portal Area",
-            &minPortalArea,
+        ImGui::InputDouble(
+            "Ambient Floor##1",
+            &radiosity.ambientFloor,
             0.01,
             0.1,
-            "%.4f"))
-        {
-            pvs.minPortalArea =
-                static_cast<T>(minPortalArea);
-        }
+            "%.4f");
 
-        double clipTolerance =
-            static_cast<double>(pvs.clipTolerance);
+        ImGui::InputDouble(
+            "Indirect Gain",
+            &radiosity.indirectGain,
+            0.1,
+            1.0,
+            "%.3f");
 
-        if (ImGui::InputDouble(
-            "Clip Tolerance",
-            &clipTolerance,
+        ImGui::InputInt(
+            "Block Size",
+            &radiosity.blockSize);
+
+        ImGui::InputDouble(
+            "Albedo Min",
+            &radiosity.albedoMin,
             0.01,
             0.1,
-            "%.4f"))
+            "%.3f");
+
+        ImGui::InputDouble(
+            "Albedo Max",
+            &radiosity.albedoMax,
+            0.01,
+            0.1,
+            "%.3f");
+
+        // textureEmissionStrength kann T=float/double sein
+        double emission =
+            static_cast<double>(radiosity.textureEmissionStrength);
+
+        if (ImGui::InputDouble(
+            "Texture Emission Strength",
+            &emission,
+            0.01,
+            0.1,
+            "%.3f"))
         {
-            pvs.clipTolerance =
-                static_cast<T>(clipTolerance);
+            radiosity.textureEmissionStrength =
+                static_cast<T>(emission);
         }
     }
+
+
 }
-
-
 
 template<class T>
 inline void RenderCompilerSetupWindow(bool& m_compile_setup_visible, ng::lightmap::RadiosityOptions<T>& radiosity,

@@ -93,7 +93,7 @@ namespace ng::renderer::rasterizer {
                     // --------------------------------------------------------
                     // Lock buffers
                     // --------------------------------------------------------
-                m_depth.Lock(m_key);
+            m_depth.Lock(m_key);
             m_color.Lock(m_key);
             m_normal.Lock(m_key);
             m_index.Lock(m_key);

@@ -459,7 +459,7 @@
 "portal_id" "2"
 "linked_to_id" "3"
 "brush_mode" "1"
-"face_render" "1"
+"face_render" "0.5"
 "spawnflags" "1"
 // brush 0
 {
