@@ -236,6 +236,18 @@ namespace ng{
 				w() = wv;
 			}
 
+			inline	Matrix(const Matrix<3, 1, T>& v, const T& wv)
+			{
+				// This assertion guarantees that they are initializing the entire vector
+
+				TemplateAssert(N == 4 && M == 1);
+
+				x() = v.x();
+				y() = v.y();
+				z() = v.z();
+				w() = wv;
+			}
+
 			// Initialize with three values (useful for vectors)
 
 			inline				Matrix(const T& xv, const T& yv, const T& zv)

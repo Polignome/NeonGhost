@@ -135,19 +135,28 @@ namespace ng::renderer::rasterizer
         return (0xffu << 24) | (enc(x) << 16) | (enc(y) << 8) | enc(z);
     }
 
-    template<class T>
-    inline ng::math::Matrix<3, 1, T> UnpackNormal(uint32_t packed)
+    // 256-Eintraege-LUT, einmal anlegen (static oder Member)
+    inline const float* NormalLut()
     {
-        auto dec = [](uint32_t v) -> T
-            {
-                return (T(v) / (T)255) * (T)2 - (T)1;
-            };
+        static float lut[256];
+        static bool init = false;
+        if (!init)
+        {
+            for (int i = 0; i < 256; ++i) lut[i] = float(i) / 255.0f * 2.0f - 1.0f;
+            init = true;
+        }
+        return lut;
+    }
 
-        T x = dec((packed >> 16) & 0xffu);
-        T y = dec((packed >> 8) & 0xffu);
-        T z = dec(packed & 0xffu);
-
-        return ng::math::Matrix<3, 1, T>(x, y, z);
+    template <class T>
+    inline bool UnpackNormal(uint32_t c, ng::math::Matrix<3, 1, T>& n)
+    {
+        if ((c >> 24) == 0) return false;          // nie beschrieben (Clear-Wert 0)
+        const float* lut = NormalLut();
+        n = ng::math::Matrix<3, 1, T>(T(lut[(c >> 16) & 255]),
+            T(lut[(c >> 8) & 255]),
+            T(lut[c & 255]));
+        return true;
     }
 
     // -------------------------------------------------------------
@@ -555,6 +564,13 @@ namespace ng::renderer::rasterizer
         {
             target.depth[offset] = 0.0f;    // "fern" = Clear-Wert deines Tiefenpuffers
             return;
+        }
+
+        if (st.flags & RASTER_WRITE_NORMAL)
+        {
+            T l = std::sqrt(f.nx * f.nx + f.ny * f.ny + f.nz * f.nz);
+            if (l > T(1e-6)) l = T(1) / l; else l = T(0);
+            target.normal[offset] = PackNormal<T>(f.nx * l, f.ny * l, f.nz * l);
         }
 
         uint32_t color = st.colorFn(f, st);

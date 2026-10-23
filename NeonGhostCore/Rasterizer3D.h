@@ -47,6 +47,8 @@ namespace ng::renderer::rasterizer {
             return m_center_y;
         }
     public:
+
+        Target& GetTarget() { UpdateRenderTarget(); return m_target; }
         // ============================================================
         // Resize
         // ============================================================

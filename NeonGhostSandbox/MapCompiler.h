@@ -58,8 +58,8 @@ inline bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::str
 
 template <class T>
 inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T>& po,
-    const ng::bsp::VisCellOptions<T>& vo, ng::lightmap::LightmapOptions& lmOpt,
-    const ng::lightmap::RadiosityOptions<T>& radOpt, BspScene<T>& sscen)
+    const ng::bsp::VisCellOptions<T>& vo, ng::lightning::LightmapOptions& lmOpt,
+    const ng::lightning::RadiosityOptions<T>& radOpt, BspScene<T>& sscen)
 {
     using Vec3 = ng::math::Matrix<3, 1, T>;
 
@@ -199,7 +199,7 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         auto visibleextra = scene.m_bsp.CollectRemainingExtraPolygons();
 
         // ---- Lightmap (unveraendert) ----
-        lmOpt.startAtlasSize = std::max(1024, ng::lightmap::EstimateAtlasSize(visible, visibleextra, lmOpt));
+        lmOpt.startAtlasSize = std::max(1024, ng::lightning::EstimateAtlasSize(visible, visibleextra, lmOpt));
         auto lights = ng::map::ToLightSources<T>(data.GetLights());
 
         if (lmOpt.buildDirectLight || radOpt.buildDirectRadiosity)
@@ -207,14 +207,14 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
             auto ll = lights;
             if (!lmOpt.buildDirectLight) ll.clear();
 
-            auto atlas = ng::lightmap::BuildLightmapAtlas(visible, scene.m_bsp, ll, lmOpt);
+            auto atlas = ng::lightning::BuildLightmapAtlas(visible, scene.m_bsp, ll, lmOpt);
             if (atlas)
             {
                 if (radOpt.buildDirectRadiosity)
-                    ng::lightmap::BakeRadiosity(*atlas, visible, radOpt);
+                    ng::lightning::BakeRadiosity(*atlas, visible, radOpt);
 
                 scene.m_lightmap = std::move(atlas->Buffer());
-                ng::lightmap::BlurAllLightmaps(*atlas, visible, 4);
+                ng::lightning::BlurAllLightmaps(*atlas, visible, 4);
             }
         }
 

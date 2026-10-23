@@ -68,6 +68,24 @@ namespace ng::renderer::rasterizer {
         {
         }
 
+        inline const Rasterizer& GetRasterizer() const {
+            return m_rasterizer;
+        }
+        inline Rasterizer& GetRasterizer() {
+            return m_rasterizer;
+        }
+
+
+        const std::vector<int32_t>& GetWorldVisCells() const { return m_worldVisCells; }
+        std::vector<int32_t>& GetWorldVisCells() { return m_worldVisCells; }
+
+        const std::vector<ng::bounding::AABBox<3, T>>& GetWorldCellBounds() const { return m_worldCellBounds; }
+        std::vector<ng::bounding::AABBox<3, T>>& GetWorldCellBounds() { return m_worldCellBounds; }
+
+
+
+
+
         inline void SetTime(double t) { m_time = (T)t; }
 
         void Begin() {
@@ -656,6 +674,9 @@ namespace ng::renderer::rasterizer {
                                     state.flags |= ng::renderer::rasterizer::RASTER_TRANSPARENT;
                                     state.flags |= ng::renderer::rasterizer::RASTER_WARP;
                                     state.flags |= ng::renderer::rasterizer::RASTER_WRITE_NORMAL;
+                                    state.warpTime = m_time;
+
+                                 
                                     state.materialAlpha = 0.8;
                                     m_rasterizer.PushState();
                                     m_rasterizer.SetState(state);
@@ -993,6 +1014,41 @@ namespace ng::renderer::rasterizer {
             return out;            // far weglassen
         }
 
+
+        // --- public, z.B. unter CameraFrustumPlanes() ---
+
+        struct ViewBasis {
+            ng::math::Matrix<3, 1, T> pos, right, up, forward;
+            T p00, p11;
+        };
+
+        inline ViewBasis GetViewBasis()
+        {
+            using Vec3 = ng::math::Matrix<3, 1, T>;
+            UpdateCameraPos();
+
+            const auto pl = CameraFrustumPlanes();   // links, rechts, unten, oben, near
+            ViewBasis b;
+            b.pos = m_camera_pos;
+            b.forward = pl[4].normal();  b.forward.normalize();
+
+            Vec3 r = pl[0].normal() - pl[1].normal();
+            Vec3 u = pl[2].normal() - pl[3].normal();
+            r = r - b.forward * (r ^ b.forward);  r.normalize();
+            u = u - b.forward * (u ^ b.forward);
+            u = u - r * (u ^ r);                  u.normalize();
+            b.right = r;
+            b.up = u;
+
+            const Vec3 nl = pl[0].normal(), nb = pl[2].normal();
+            b.p00 = (nl ^ r) / (nl ^ b.forward);      // x-Skala (NDC pro Tiefeneinheit)
+            b.p11 = (nb ^ u) / (nb ^ b.forward);      // y-Skala
+            return b;
+        }
+
+
+       
+
         inline void SetCamera(const scene::Camera<T>& camera) {
 
             ModelViewMatrix() = camera.ViewMatrix();
@@ -1201,6 +1257,7 @@ namespace ng::renderer::rasterizer {
         const void* m_worldCellsPtr = nullptr;
         const void* m_worldPvsPtr = nullptr;
         int32_t m_worldCell = -2;
+
         std::vector<int32_t> m_worldVisCells;                       // PVS-Zellen der aktuellen Kamerazelle
 
         const void* m_worldBoundsOwner = nullptr;
@@ -1265,7 +1322,9 @@ namespace ng::renderer::rasterizer {
                 v.v() *= ow;
                 v.fxu() *= ow;
                 v.fxv() *= ow;
-
+                v.normal().x() *= ow;
+                v.normal().y() *= ow;
+                v.normal().z() *= ow;
                 v.w() = ow;
             }
         }

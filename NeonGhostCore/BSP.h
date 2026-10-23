@@ -1684,7 +1684,7 @@ namespace ng
                                 {
                                     return lhs.t < rhs.t;
                                 });
-
+/*
                             for (const auto& c : candidates)
                             {
                                 // Wichtig: Das ist zunächst nur eine geometrische
@@ -1695,6 +1695,15 @@ namespace ng
                                 // Diese Zuweisung ggf. an deine Vertex-API anpassen.
                                 v.world() = c.p;
 
+                                fixed.push_back(std::move(v));
+                                ++inserted;
+                            }
+                        */
+                            for (const auto& c : candidates)
+                            {
+                                // t ist der Parameter auf der Kante a->b, hier schon berechnet
+                                Vertex v = LerpVertex(va, vb, c.t);
+                                v.world() = c.p;   // exakte Position des Nachbar-Vertex übernehmen (kein Spalt)
                                 fixed.push_back(std::move(v));
                                 ++inserted;
                             }
@@ -1767,7 +1776,7 @@ namespace ng
                 if (m_root && m_root->isLeaf() && m_leaflist.empty())
                     AddLeaf(m_root);
 
-
+                
 
                 if (options.fixTJunctions) {
                     printf("[BSP] Fix TJunctions\n");
@@ -1785,7 +1794,7 @@ namespace ng
                     SmoothNormals(out);
                 }
 
-
+                
 
                 if (m_verbose)
                     printf("[BSP] fertig: leaves=%zu tiefe=%d\n", m_leaflist.size(), m_maxDepth);

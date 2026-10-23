@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory>
 
-namespace ng::lightmap
+namespace ng::lightning
 {
     // ------------------------------------------------------------
     // LightMapPartitionLeaf

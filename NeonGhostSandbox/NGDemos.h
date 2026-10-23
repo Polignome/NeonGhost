@@ -11,6 +11,8 @@
 #include <cstdint>
 #include "MapCompiler.h"
 #include "RenderTargetView.h"
+#include <LightGun.h>
+#include <DynamicLight.h>
 
 static ng::renderer::buffers::PixelBufferRGBA m_bixelbuffer(800, 600);
 static ng::renderer::rasterizer::Rasterizer3D<NG_MATH_FLOAT> m_rasterizer_3d(800, 600);
@@ -61,12 +63,17 @@ static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 static ng::renderer::rasterizer::LightmapCorrection m_lmCorr;
 static BspScene<NG_MATH_FLOAT> m_bsp_scene;
 
-static ng::lightmap::LightmapOptions lmOpt;
-static ng::lightmap::RadiosityOptions<NG_MATH_FLOAT> radOpt;
+static ng::lightning::LightmapOptions lmOpt;
+static ng::lightning::RadiosityOptions<NG_MATH_FLOAT> radOpt;
 static ng::bsp::PVSOptions<NG_MATH_FLOAT> po;
 static ng::bsp::VisCellOptions<NG_MATH_FLOAT> vo;
 
 
+
+
+using Light = typename ng::lightning::DynLight<NG_MATH_FLOAT>;
+static ng::lightning::LightGun<NG_MATH_FLOAT, Light> m_light_gun(1);
+static std::vector<Light> lights;
 
 
 
@@ -1521,6 +1528,7 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     static ImVec2 m_mouse_steps;
     static ng::controller::CameraController<NG_MATH_FLOAT> cam_controller;
     m_mouse_pos = ImGui::GetMousePos();
+    static bool e_up = false;
     m_mouse_steps.x = m_mouse_pos.x - m_mouse_pos_old.x;
     m_mouse_steps.y = m_mouse_pos.y - m_mouse_pos_old.y;
     m_mouse_pos_old = m_mouse_pos;
@@ -1531,6 +1539,14 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     float wishForward = 0.0f;
     bool speedup = false;
     bool wishJump = false;
+
+
+    static auto lastTime = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    float dt = std::chrono::duration<float>(now - lastTime).count();
+    dt = std::min(dt, 0.05f); // Cap gegen Spiral-of-Death bei Lags
+    lastTime = now;
+
 
     if (ImGui::IsWindowFocused()) {
         m_mouse_pos.x = -1;
@@ -1577,6 +1593,16 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
                 cam_controller.Turn(m_camera, m_mouse_steps.y * speed2, m_mouse_steps.x * speed2);
             }
 
+
+            // Input
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+
+                    
+                
+            }
+
+
             // GEAENDERT: WASD bewegt nicht mehr direkt die Kamera, sondern setzt
             // nur noch die Wunschrichtung. Ausgefuehrt wird die Bewegung weiter
             // unten, je nachdem ob Kollision an oder aus ist.
@@ -1585,15 +1611,24 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
             if (ImGui::IsKeyDown(ImGuiKey_S)) wishForward += 1.0f;
             if (ImGui::IsKeyDown(ImGuiKey_A)) wishRight -= 1.0f;
             if (ImGui::IsKeyDown(ImGuiKey_D)) wishRight += 1.0f;
+            
+            
+            if (ImGui::IsKeyDown(ImGuiKey_E) && !e_up)
+            {
+                e_up = true;
+                const auto vb = m_render_pipeline_3d.GetViewBasis();
+                const NG_MATH_FLOAT h = (NG_MATH_FLOAT)dt * 2.0f;   // wechselnde Farbe, nur zum Spass
+                
+
+
+                m_light_gun.Fire(vb.pos, vb.forward, { (1.0 / RAND_MAX) * std::rand(),(1.0 / RAND_MAX) * std::rand(),(1.0 / RAND_MAX) * std::rand() });
+
+            }
+            else e_up = false;
             if (ImGui::IsKeyDown(ImGuiKey_Space)) wishJump = true;
         }
     }
 
-    static auto lastTime = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    float dt = std::chrono::duration<float>(now - lastTime).count();
-    dt = std::min(dt, 0.05f); // Cap gegen Spiral-of-Death bei Lags
-    lastTime = now;
 
     // Einmalig: Player an der aktuellen Kameraposition "einklinken".
     if (!m_player.IsInitialized())
@@ -1709,8 +1744,8 @@ inline void RenderWindow(bool& m_software_renderer_visible)
 
 template<class T>
 inline void DrawLightingVisSetup(
-    ng::lightmap::RadiosityOptions<T>& radiosity,
-    ng::lightmap::LightmapOptions& lightmap,
+    ng::lightning::RadiosityOptions<T>& radiosity,
+    ng::lightning::LightmapOptions& lightmap,
     ng::bsp::VisCellOptions<T>& visCell,
     ng::bsp::PVSOptions<T>& pvs)
 {
@@ -2039,8 +2074,8 @@ inline void DrawLightingVisSetup(
 }
 
 template<class T>
-inline void RenderCompilerSetupWindow(bool& m_compile_setup_visible, ng::lightmap::RadiosityOptions<T>& radiosity,
-    ng::lightmap::LightmapOptions& lightmap,
+inline void RenderCompilerSetupWindow(bool& m_compile_setup_visible, ng::lightning::RadiosityOptions<T>& radiosity,
+    ng::lightning::LightmapOptions& lightmap,
     ng::bsp::VisCellOptions<T>& visCell,
     ng::bsp::PVSOptions<T>& pvs)
 {

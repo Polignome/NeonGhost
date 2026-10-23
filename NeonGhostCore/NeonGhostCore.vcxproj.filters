@@ -396,6 +396,12 @@
     <ClInclude Include="Portalcompile.h">
       <Filter>Headerdateien\Spatial</Filter>
     </ClInclude>
+    <ClInclude Include="LightGun.h">
+      <Filter>Headerdateien\Light</Filter>
+    </ClInclude>
+    <ClInclude Include="DynamicLight.h">
+      <Filter>Headerdateien\Light</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

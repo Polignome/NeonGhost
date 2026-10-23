@@ -33,7 +33,7 @@
 #include <limits>
 #include <cstdio>
 
-namespace ng::lightmap
+namespace ng::lightning
 {
     template<class T>
     using Vec3 = ng::math::Matrix<3, 1, T>;

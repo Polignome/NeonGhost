@@ -1,7 +1,7 @@
 #pragma once
 #include "Lightmap.h"
 
-namespace ng::lightmap {
+namespace ng::lightning {
     // ================================================================
         // Radiosity (indirektes Licht / Bounces), Block-basiert
         //

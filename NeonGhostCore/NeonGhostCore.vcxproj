@@ -161,7 +161,9 @@
     <ClInclude Include="Clipping.h" />
     <ClInclude Include="CRC.h" />
     <ClInclude Include="CSGTree.h" />
+    <ClInclude Include="DynamicLight.h" />
     <ClInclude Include="HalfLife.h" />
+    <ClInclude Include="LightGun.h" />
     <ClInclude Include="LightMapAtlas.h" />
     <ClInclude Include="Lightmap.h" />
     <ClInclude Include="Map.h" />

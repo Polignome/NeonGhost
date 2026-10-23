@@ -24,7 +24,8 @@
 #include <Lightmap.h>
 #include <Radiosity.h>
 #include "MapCompiler.h"
-
+#include <DynamicLight.h>
+#include <LightGun.h>
 #pragma comment(lib, "SDL2.lib")
 #pragma comment(lib, "SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -43,17 +44,17 @@ const size_t MAX_POLY_COUNTS = 100;
 //https://claude.ai/chat/8116e964-c2d9-40e2-bcfa-ed126458b56d
 
 static ng::tools::FPSCounter m_fps_counter;
-
 static ng::renderer::gfx::Texture m_bsp_lightmap;
-
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
-
-static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
-
-static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
+static auto *dynFX = mgr.AddEffect<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>>();
+//static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
+//static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
 
 
 static std::vector < ng::map::BrushPoly<NG_MATH_FLOAT>> m_map_brush_polys;
+
+
+
 std::string VFSFilePicker(bool& show, std::string wildcard) {
     if (!show) return "";
     static std::filesystem::path p = std::filesystem::current_path();
@@ -126,6 +127,9 @@ inline void Render() {
 
     double deltaTime = ImGui::GetIO().DeltaTime;
     totalTime += deltaTime;                      // <-- NEU: aufaddieren statt Delta direkt nutzen
+    mgr.BindNormal(m_rasterizer_3d.GetTarget().normal);
+    mgr.BindColor(m_rasterizer_3d.GetTarget().color);
+    mgr.BindDepth(m_rasterizer_3d.GetTarget().depth);
 
 //    blur->SetStrength(6.0f);   // z.B. fuer Pause-Menue oder Unterwasser
     
@@ -140,6 +144,7 @@ inline void Render() {
     }
 
 
+
     m_render_pipeline_3d.SetTime(totalTime);
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
@@ -150,15 +155,22 @@ inline void Render() {
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
      
     m_rasterizer_3d.GetColorBuffer().Clear(RGB(0, 0, 0));
-    m_rasterizer_3d.GetNormalBuffer().Clear(RGB(255, 0, 0));
+    m_rasterizer_3d.GetNormalBuffer().Clear(RGB(0, 0, 0));
 
     m_render_pipeline_3d.ModelViewMatrix() = m_camera.ViewMatrix();
     m_render_pipeline_3d.ProjectionMatrix() = m_camera.ProjectionMatrix();
     m_render_pipeline_3d.SetCamera(m_camera);
 
     m_fps_counter.Update();
+
+    // Frame
+    m_light_gun.Update(deltaTime, m_bsp_scene.m_cells.Tree());
+    lights.clear();
+    m_light_gun.Gather(lights);
+
     m_render_pipeline_3d.Begin();
-     
+
+
 
         m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
@@ -176,13 +188,27 @@ inline void Render() {
 
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
     
-
-    for (auto m : m_mesh_obj)
+    for (auto l : lights) {
+        auto m = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateSphere(5);
+            //::CreateCube(1, l.color);
+        m.SetVertexColor(l.color);
+        m.SetPosition(l.pos);
         m_render_pipeline_3d.RenderMesh(m);
 
-    m_render_pipeline_3d.End();
-       
+    }
 
+
+    m_render_pipeline_3d.End();
+    //ng::lightning::ApplyDynamicLightsDebug(m_render_pipeline_3d,lights, &m_bsp_scene.m_cells);
+    const auto vb = m_render_pipeline_3d.GetViewBasis();
+    ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::View v{ vb.pos, vb.right, vb.up, vb.forward, vb.p00, vb.p11 };
+    dynFX->SetView(v);
+    
+    std::vector<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::Light> fl;
+    for (const auto& l : lights) fl.push_back({ l.pos, l.color, l.intensity, l.radius });
+    dynFX->SetLights(fl);
+
+    mgr.Apply(totalTime);    // 
 
 //    if (m_use_after_fx)mgr.Apply(totalTime);
     if (medium & ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID) mgr.Apply(totalTime);
@@ -325,7 +351,7 @@ void InitStuff() {
 
 
     // compiler settings
-   // lmOpt.buildDirectLight = m_build_lightmaps;
+    lmOpt.buildDirectLight = false;
     lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
     lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
     lmOpt.maxAtlasSize = 8192;
@@ -334,7 +360,8 @@ void InitStuff() {
     lmOpt.coverageMargin = 1.0;
 
 
-    //radOpt.buildDirectRadiosity = m_build_radiosity;
+    radOpt.buildDirectRadiosity = false;
+    
     radOpt.bounces = 4;
     radOpt.samplesPerPatch = 32;
     radOpt.blockSize = 2;
@@ -358,7 +385,6 @@ void InitStuff() {
 
 
 }
-
 
 
 

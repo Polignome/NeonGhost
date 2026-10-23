@@ -3,7 +3,7 @@
 #pragma once
 #include <algorithm>
 
-namespace ng::lightmap
+namespace ng::lightning
 {
     struct Rect
     {

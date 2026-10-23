@@ -27,17 +27,17 @@ namespace ng {
 
 
 		template<class T>
-		std::vector<ng::lightmap::LightSource<T>> ExtractLights(const std::vector<HalfLife::RawLight>& raw)
+		std::vector<ng::lightning::LightSource<T>> ExtractLights(const std::vector<HalfLife::RawLight>& raw)
 		{
 			using Vec3 = ng::math::Matrix<3, 1, T>;
-			std::vector<ng::lightmap::LightSource<T>> result;
+			std::vector<ng::lightning::LightSource<T>> result;
 			result.reserve(raw.size());
 
 			for (const auto& rl : raw)
 			{
 				if (rl.origin.empty()) continue; // ohne Position unbrauchbar
 
-				ng::lightmap::LightSource<T> src;
+				ng::lightning::LightSource<T> src;
 
 				// "x y z" -> Position
 				{
@@ -80,16 +80,16 @@ namespace ng {
 			return result;
 		}
 		template<class T>
-		std::vector<ng::lightmap::LightSource<T>> ToLightSources(const std::vector<ng::map::LightEntity<T>>& mapLights)
+		std::vector<ng::lightning::LightSource<T>> ToLightSources(const std::vector<ng::map::LightEntity<T>>& mapLights)
 		{
-			std::vector<ng::lightmap::LightSource<T>> result;
+			std::vector<ng::lightning::LightSource<T>> result;
 			result.reserve(mapLights.size());
 
 			for (const auto& l : mapLights)
 			{
 				
 
-				ng::lightmap::LightSource<T> src;
+				ng::lightning::LightSource<T> src;
 				src.pos = l.origin;
 				src.color = l.color;
 				src.intensity = T(1); // Helligkeit steckt bereits in radius/color

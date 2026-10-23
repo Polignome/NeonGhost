@@ -1583,6 +1583,143 @@ namespace ng
 
 
 
+
+
+
+
+
+
+            template <class T>
+            class DynamicLightFX : public IPostFXEffect<T>
+            {
+            public:
+                using Vec3 = ng::math::Matrix<3, 1, T>;
+
+                struct Light
+                {
+                    Vec3 pos;
+                    Vec3 color{ 1, 1, 1 };
+                    T intensity = T(1);
+                    T radius = T(300);
+                };
+
+                struct View
+                {
+                    Vec3 pos, right, up, forward;
+                    T p00 = 1, p11 = 1;     // NDC-Skalen aus GetViewBasis()
+                };
+
+                // Pro Frame VOR mgr.Apply() setzen
+                void SetView(const View& v) { m_view = v; }
+                void SetLights(const std::vector<Light>& l) { m_lights = l; }
+
+                const char* GetName() const override { return "DynamicLight"; }
+
+                std::vector<BufferSlot> GetRequiredInputs() const override
+                {
+                    return { BufferSlot::Color, BufferSlot::Depth, BufferSlot::Normal };
+                }
+
+                void Apply(GBuffer<T>& gb, T /*time*/) override
+                {
+                    if (!gb.color || !gb.depth || !gb.normal || gb.width <= 0 || gb.height <= 0) return;
+                    if (m_lights.empty()) return;
+
+                    const int W = gb.width, H = gb.height;
+                    const T cx = T(W) * T(0.5), cy = T(H) * T(0.5);
+                    const T kx = T(1) / (cx * m_view.p00);
+                    const T ky = T(1) / (cy * m_view.p11);
+                    const Vec3& pos = m_view.pos, & R = m_view.right, & U = m_view.up, & F = m_view.forward;
+
+                    for (const auto& L : m_lights)
+                    {
+                        const T r2 = L.radius * L.radius;
+                        const T invR2 = T(1) / r2;
+
+                        // Screen-Rechteck der Lichtkugel
+                        int x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+                        const Vec3 rel = L.pos - pos;
+                        const T zc = rel ^ F;
+                        if ((rel ^ rel) > r2)
+                        {
+                            if (zc + L.radius < T(0.01)) continue;
+                            if (zc > L.radius)
+                            {
+                                const T pxc = cx + ((rel ^ R) / zc) * (cx * m_view.p00);
+                                const T pyc = cy - ((rel ^ U) / zc) * (cy * m_view.p11);
+                                const T rpx = L.radius / (zc - L.radius) * std::abs(cx * m_view.p00);
+                                const T rpy = L.radius / (zc - L.radius) * std::abs(cy * m_view.p11);
+                                x0 = std::max(0, (int)std::floor(pxc - rpx));
+                                x1 = std::min(W - 1, (int)std::ceil(pxc + rpx));
+                                y0 = std::max(0, (int)std::floor(pyc - rpy));
+                                y1 = std::min(H - 1, (int)std::ceil(pyc + rpy));
+                                if (x0 > x1 || y0 > y1) continue;
+                            }
+                        }
+
+                        for (int y = y0; y <= y1; ++y)
+                        {
+                            const T yv = -((T(y) + T(0.5)) - cy) * ky;
+                            for (int x = x0; x <= x1; ++x)
+                            {
+                                const size_t i = (size_t)y * W + x;
+                                const T d = gb.depth[i];
+                                if (!(d > T(1e-9))) continue;
+                                const T z = T(1) / d;
+
+                                const T xv = ((T(x) + T(0.5)) - cx) * kx;
+                                const Vec3 P = pos + R * (xv * z) + U * (yv * z) + F * z;
+
+                                Vec3 toL = L.pos - P;
+                                const T d2 = toL ^ toL;
+                                if (d2 >= r2) continue;
+
+                                const uint32_t np = gb.normal[i];
+                                if ((np >> 24) == 0) continue;               // nie beschrieben
+                                Vec3 N(T((np >> 16) & 255) / T(255) * T(2) - T(1),
+                                    T((np >> 8) & 255) / T(255) * T(2) - T(1),
+                                    T(np & 255) / T(255) * T(2) - T(1));
+                                const T nl = N.length();
+                                if (nl < T(1e-6)) continue;
+                                N = N * (T(1) / nl);
+
+                                toL = toL * (T(1) / std::max(std::sqrt(d2), T(1e-4)));
+                                const T ndl = N ^ toL;
+                                if (ndl <= T(0)) continue;
+
+                                T att = T(1) - d2 * invR2;
+                                att *= att;
+                                const T k = ndl * att * L.intensity;
+                                if (k < T(1.0 / 512)) continue;
+
+                                const uint32_t c = gb.color[i];
+                                const int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+                                const int nr = std::min(255, r + int(r * k * L.color(0) + k * L.color(0) * 24));
+                                const int ng_ = std::min(255, g + int(g * k * L.color(1) + k * L.color(1) * 24));
+                                const int nb = std::min(255, b + int(b * k * L.color(2) + k * L.color(2) * 24));
+                                gb.color[i] = (c & 0xFF000000u) | (nr << 16) | (ng_ << 8) | nb;
+                            }
+                        }
+                    }
+                }
+
+            private:
+                View m_view;
+                std::vector<Light> m_lights;
+            };
+
+
+
+
+
+
+
+
+
+
+
+
+
         } // namespace postfx
     } // namespace renderer
 } // namespace ng
