@@ -402,6 +402,9 @@
     <ClInclude Include="DynamicLight.h">
       <Filter>Headerdateien\Light</Filter>
     </ClInclude>
+    <ClInclude Include="ViewMotionController.h">
+      <Filter>Headerdateien\Controler</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

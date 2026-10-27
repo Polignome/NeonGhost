@@ -42,7 +42,7 @@
 #endif // !_NG_USE_RES_THREADS
 
 
-
+#define NG_VERBOSE_MODE
 
 
 #ifndef NG_INIT_AVX

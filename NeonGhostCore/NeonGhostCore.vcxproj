@@ -233,6 +233,7 @@
     <ClInclude Include="VFSZipDrive.h" />
     <ClInclude Include="VFSZipFile.h" />
     <ClInclude Include="VFSZipStream.h" />
+    <ClInclude Include="ViewMotionController.h" />
     <ClInclude Include="VirtualFileSystem.h" />
     <ClInclude Include="Viscells.h" />
     <ClInclude Include="Visualize.h" />

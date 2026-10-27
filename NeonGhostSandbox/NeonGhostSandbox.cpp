@@ -47,7 +47,7 @@ static ng::tools::FPSCounter m_fps_counter;
 static ng::renderer::gfx::Texture m_bsp_lightmap;
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 static auto *dynFX = mgr.AddEffect<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>>();
-//static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
+static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
 //static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
 
 
@@ -188,6 +188,7 @@ inline void Render() {
 
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
     
+    /*
     for (auto l : lights) {
         auto m = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateSphere(5);
             //::CreateCube(1, l.color);
@@ -196,18 +197,19 @@ inline void Render() {
         m_render_pipeline_3d.RenderMesh(m);
 
     }
-
+    */
 
     m_render_pipeline_3d.End();
     //ng::lightning::ApplyDynamicLightsDebug(m_render_pipeline_3d,lights, &m_bsp_scene.m_cells);
     const auto vb = m_render_pipeline_3d.GetViewBasis();
+  
+    /*
     ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::View v{ vb.pos, vb.right, vb.up, vb.forward, vb.p00, vb.p11 };
     dynFX->SetView(v);
-    
     std::vector<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::Light> fl;
     for (const auto& l : lights) fl.push_back({ l.pos, l.color, l.intensity, l.radius });
     dynFX->SetLights(fl);
-
+*/
     mgr.Apply(totalTime);    // 
 
 //    if (m_use_after_fx)mgr.Apply(totalTime);
