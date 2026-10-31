@@ -199,6 +199,40 @@ namespace ng
             void SetWarpPortals(const std::vector<WarpPortal<T>>* w) { m_warps = w; }
 
             // --------------------------------------------------------
+            // Portal-Ghosting
+            //
+            // Solange ein Portal "ghosted" ist, ignoriert MoveEllipsoid alle Polygone,
+            //  - die komplett HINTER oder AUF der Portalebene liegen
+            //    (Nische, Rahmen, Rueckwand, Boden/Wand, in die das Portal geschnitten ist) und
+            //  - deren Box die (aufgeblasene) Box der Portal-Oeffnung beruehrt.
+            // So bleibt der Koerper nicht mehr an der Nische haengen, bevor das Auge die
+            // Portalebene erreicht. Polygone VOR der Ebene (der normale Raum) bleiben solide.
+            //
+            //  w       : Portal oder nullptr (= Ghosting aus)
+            //  inflate : Aufblasen der Portal-Box in alle Richtungen (Units)
+            // --------------------------------------------------------
+            void SetGhostPortal(const WarpPortal<T>* w, T inflate = T(80))
+            {
+                m_ghost = nullptr;
+                if (!w || w->verts.empty()) return;
+
+                Vec3 mn = w->verts[0];
+                Vec3 mx = mn;
+                for (const auto& v : w->verts)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        if (v(k) < mn(k)) mn(k) = v(k);
+                        if (v(k) > mx(k)) mx(k) = v(k);
+                    }
+
+                m_ghostMin = mn - Vec3(inflate, inflate, inflate);
+                m_ghostMax = mx + Vec3(inflate, inflate, inflate);
+                m_ghost = w;
+            }
+
+            inline bool HasGhostPortal() const { return m_ghost != nullptr; }
+
+            // --------------------------------------------------------
             // MoveEllipsoid
             //
             //  position : Mittelpunkt des Ellipsoids (nicht die Augenhoehe!)
@@ -395,6 +429,42 @@ namespace ng
 
             const std::vector<WarpPortal<T>>* m_warps = nullptr;
 
+            // Portal-Ghosting (siehe SetGhostPortal)
+            const WarpPortal<T>* m_ghost = nullptr;
+            Vec3 m_ghostMin{ 0, 0, 0 };
+            Vec3 m_ghostMax{ 0, 0, 0 };
+
+            // true, wenn das Polygon im Moment ignoriert werden soll
+            inline bool IsGhosted(const BSPPolygon<T>& poly) const
+            {
+                if (!m_ghost) return false;
+
+                const T eps = T(0.5);
+                Vec3 pmn, pmx;
+
+                for (size_t i = 0; i < poly.verts.size(); ++i)
+                {
+                    const Vec3 p = poly.verts[i].world();
+
+                    // irgendein Eckpunkt VOR der Ebene -> echte Geometrie des Raums
+                    if (((p - m_ghost->origin) ^ m_ghost->normal) > eps) return false;
+
+                    if (i == 0) { pmn = p; pmx = p; }
+                    else
+                    {
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            if (p(k) < pmn(k)) pmn(k) = p(k);
+                            if (p(k) > pmx(k)) pmx(k) = p(k);
+                        }
+                    }
+                }
+
+                return !(pmx(0) < m_ghostMin(0) || pmn(0) > m_ghostMax(0) ||
+                    pmx(1) < m_ghostMin(1) || pmn(1) > m_ghostMax(1) ||
+                    pmx(2) < m_ghostMin(2) || pmn(2) > m_ghostMax(2));
+            }
+
             // true, wenn das Polygon eine begehbare Portalflaeche ist
             inline bool IsWalkablePortal(const BSPPolygon<T>& poly) const
             {
@@ -467,6 +537,7 @@ namespace ng
                         {
                             if (poly.verts.size() < 3) continue;
                             if (IsWalkablePortal(poly)) continue;
+                            if (IsGhosted(poly)) continue;
 
                             Vec3 pmn = poly.verts[0].world();
                             Vec3 pmx = pmn;

@@ -1084,7 +1084,7 @@ namespace ng
             {
                 if (!poly || poly->verts.size() < 3)
                     continue;
-
+              
                 const Vec3 fn = poly->plane.normal();
 
                 for (auto& v : poly->verts)
@@ -1116,6 +1116,8 @@ namespace ng
                         : fn;
                 }
             }
+
+          
         }
 
         template <class T>
@@ -1175,7 +1177,8 @@ namespace ng
             inline std::shared_ptr<BSPNode<T>> GetBackNode() { return m_back_node; }
             inline std::shared_ptr<BSPNode<T>> GetFrontNode() const { return m_front_node; }  // NEU: const
             inline std::shared_ptr<BSPNode<T>> GetBackNode() const { return m_back_node; }    // NEU: const
-
+            inline const BSPNode<T>* FrontPtr() const { return m_front_node.get(); }
+            inline const BSPNode<T>* BackPtr()  const { return m_back_node.get(); }
             inline const std::vector<BSPPolygon<T>>& GetPolygons() const { return polys; }
 
             // Extra-Polygone (Wasser, Glas, ...) und Volumen-Stuecke dieses Leaves.
@@ -1195,6 +1198,8 @@ namespace ng
 
             inline void SetSolid() { m_state |= SOLID; }
             inline void DeletePolys() { polys.clear(); }
+
+            inline const Plane& PlaneRef()      const { return m_plane; }
 
         private:
             friend class BSPTree<T>;
@@ -2406,7 +2411,7 @@ namespace ng
 };
 
 
-        // ------------------------------------------------------------
+   // ------------------------------------------------------------
    // BSPRayTest / BSPRayOccluded / BSPRayNearestHit
    //
    // Traversiert einen BSPTree entlang eines Strahls und liefert den
@@ -2473,13 +2478,13 @@ namespace ng
 
 
 
+
         template<class T>
         inline BSPRayHit<T> BSPRayTest(
             const ng::bsp::BSPNode<T>* node,
-            const ng::math::Matrix<3,1,T>& origin,
-            const ng::math::Matrix<3,1,T>& dir,
-            T tMin, T tMax,
-            T eps,
+            const ng::math::Matrix<3, 1, T>& origin,
+            const ng::math::Matrix<3, 1, T>& dir,
+            T tMin, T tMax, T eps,
             const ng::bsp::BSPPolygon<T>* excludeSource = nullptr)
         {
             if (!node) return BSPRayHit<T>{};
@@ -2487,7 +2492,6 @@ namespace ng
             if (node->isLeaf())
             {
                 BSPRayHit<T> best;
-
                 for (const auto& poly : node->GetPolygons())
                 {
                     if (&poly == excludeSource) continue;
@@ -2496,74 +2500,43 @@ namespace ng
                     T t;
                     if (RayIntersectsPolygon(origin, dir, poly, t, eps) && t >= tMin && t <= tMax)
                     {
-                        if (t < best.t)
-                        {
-                            best.hit = true;
-                            best.t = t;
-                            best.poly = &poly;
-                        }
+                        if (t < best.t) { best.hit = true; best.t = t; best.poly = &poly; }
                     }
                 }
-
                 return best;
             }
 
-            const auto plane = node->GetPlane();
-            const T denom = plane.normal()(0) * dir(0) + plane.normal()(1) * dir(1) + plane.normal()(2) * dir(2);
+            const auto& plane = node->PlaneRef();
+            const auto n = plane.normal();
+            const T denom = n(0) * dir(0) + n(1) * dir(1) + n(2) * dir(2);
             const T originDist = plane.distance(origin);
 
-            auto front = node->GetFrontNode();
-            auto back = node->GetBackNode();
+            const ng::bsp::BSPNode<T>* front = node->FrontPtr();
+            const ng::bsp::BSPNode<T>* back = node->BackPtr();
 
-            // Dieselbe eps-Schwelle wie ClassifyVerts im BSP-Build (BSP.h) -
-            // statt einer harten ">=0"-Grenze, die bei Punkten SEHR nah an der
-            // Ebene (z.B. Lightmap-Texel, die exakt auf einer Wandflaeche
-            // liegen, die selbst als Splitter benutzt wurde - das ist der
-            // Normalfall!) durch numerisches Rauschen zufaellig die falsche
-            // Seite waehlen kann. Bei Unsicherheit werden beide Seiten besucht.
             if (std::abs(denom) < eps || std::abs(originDist) <= eps)
             {
-                BSPRayHit<T> hitA = BSPRayTest(front.get(), origin, dir, tMin, tMax, eps, excludeSource);
-                BSPRayHit<T> hitB = BSPRayTest(back.get(), origin, dir, tMin, tMax, eps, excludeSource);
-
+                BSPRayHit<T> hitA = BSPRayTest(front, origin, dir, tMin, tMax, eps, excludeSource);
+                BSPRayHit<T> hitB = BSPRayTest(back, origin, dir, tMin, tMax, eps, excludeSource);
                 if (!hitA.hit) return hitB;
                 if (!hitB.hit) return hitA;
                 return (hitA.t <= hitB.t) ? hitA : hitB;
             }
-            /*
-            const T tPlane = -originDist / denom;
-
-            const ng::bsp::BSPNode<T>* nearNode = (originDist > T(0)) ? front.get() : back.get();
-            const ng::bsp::BSPNode<T>* farNode = (originDist > T(0)) ? back.get() : front.get();
-
-            if (tPlane < tMin)
-                return BSPRayTest(farNode, origin, dir, tMin, tMax, eps, excludeSource);
-
-            if (tPlane > tMax)
-                return BSPRayTest(nearNode, origin, dir, tMin, tMax, eps, excludeSource);
-
-            BSPRayHit<T> nearHit = BSPRayTest(nearNode, origin, dir, tMin, tPlane, eps, excludeSource);
-            if (nearHit.hit) return nearHit;
-
-            return BSPRayTest(farNode, origin, dir, tPlane, tMax, eps, excludeSource);
-            */
 
             const T tPlane = -originDist / denom;
+            const ng::bsp::BSPNode<T>* nearNode = (originDist > T(0)) ? front : back;
+            const ng::bsp::BSPNode<T>* farNode = (originDist > T(0)) ? back : front;
 
-            const ng::bsp::BSPNode<T>* nearNode = (originDist > T(0)) ? front.get() : back.get();
-            const ng::bsp::BSPNode<T>* farNode = (originDist > T(0)) ? back.get() : front.get();
-
-            // Ebene liegt hinter dem Ursprung ODER hinter dem Strahlende:
-            // der Strahl verlaesst die Ursprungsseite nie -> nur nearNode.
             if (tPlane < tMin || tPlane > tMax)
                 return BSPRayTest(nearNode, origin, dir, tMin, tMax, eps, excludeSource);
 
-            // Strahl quert die Ebene: erst nah, dann fern.
             BSPRayHit<T> nearHit = BSPRayTest(nearNode, origin, dir, tMin, tPlane, eps, excludeSource);
             if (nearHit.hit) return nearHit;
 
             return BSPRayTest(farNode, origin, dir, tPlane, tMax, eps, excludeSource);
         }
+
+
 
         template<class T>
         inline bool BSPRayOccluded(

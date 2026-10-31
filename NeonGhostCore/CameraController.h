@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "Matrix.h"
@@ -20,7 +19,8 @@ namespace ng {
             CameraController()
                 :
                 _horizontalAngle((T)0),
-                _verticalAngle((T)0)
+                _verticalAngle((T)0),
+                _roll((T)0)
             {
             }
 
@@ -52,6 +52,35 @@ namespace ng {
             inline const T& verticalAngle() const
             {
                 return _verticalAngle;
+            }
+
+
+            // =====================================================
+            // Roll (Neigung um die Blickachse, im Bogenmass)
+            //
+            // Wird bei jedem Neuberechnen der Rotation mit eingerechnet
+            // (Turn, LookAt), bleibt also stabil. Aendert sich der Wert
+            // nicht, wird die Kamera-Rotation NICHT angefasst.
+            // =====================================================
+
+            inline const T& roll() const
+            {
+                return _roll;
+            }
+
+
+            inline void SetRoll(
+                scene::Camera<T>& camera,
+                T roll)
+            {
+                if (std::abs(roll - _roll) < (T)1e-6)
+                {
+                    return;
+                }
+
+                _roll = roll;
+
+                UpdateCameraRotation(camera);
             }
 
 
@@ -243,6 +272,19 @@ namespace ng {
                     qYaw * qPitch;
 
 
+                if (std::abs(_roll) > (T)1e-6)
+                {
+                    // Roll um die lokale Z-Achse der Kamera
+                    rotation = rotation *
+                        math::Quaternion<T>::FromAxisAngle(
+                            Vector3(
+                                (T)0,
+                                (T)0,
+                                (T)1),
+                            _roll);
+                }
+
+
                 rotation.Normalize();
 
 
@@ -254,7 +296,8 @@ namespace ng {
 
             T _horizontalAngle;
             T _verticalAngle;
+            T _roll;
         };
     }
-    
+
 }

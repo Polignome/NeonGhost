@@ -1,26 +1,95 @@
 #pragma once
 #include "Lightmap.h"
 
+#include <vector>
+#include <memory>
+#include <thread>
+#include <atomic>
+#include <random>
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdint>
+
 namespace ng::lightning {
     // ================================================================
-        // Radiosity (indirektes Licht / Bounces), Block-basiert
-        //
-        // Jedes opake Polygon wird in Bloecke von "blockSize x blockSize"
-        // Lightmap-Texeln unterteilt. Jeder Block ist EIN Patch mit eigener
-        // Albedo (Durchschnitt der Diffuse-Textur unter diesem Block) und
-        // eigener Emission (Durchschnitt des bereits gebackenen direkten
-        // Lichts unter diesem Block). Das ergibt echte Farbuebertragung
-        // (Color Bleeding) und einen Gradienten statt einer flachen
-        // Aufhellung pro Polygon.
-        //
-        // Occlusion/Nearest-Hit laeuft ueber einen intern gebauten BSPTree,
-        // dessen Polygone per objectId auf ihren Index in "occluderPolys"
-        // zurueckverweisen (NICHT auf einen Patch-Index - ein Polygon hat ja
-        // mehrere Patches). Aus Trefferpunkt + Index wird der getroffene
-        // Block per UV-Projektion bestimmt.
-        // ================================================================
-      
-     // ------------------------------------------------------------
+    // Radiosity (indirektes Licht / Bounces), Block-basiert
+    //
+    // Jedes opake Polygon wird in Bloecke von "blockSize x blockSize"
+    // Lightmap-Texeln unterteilt. Jeder Block ist EIN Patch mit eigener
+    // Albedo (Durchschnitt der Diffuse-Textur unter diesem Block) und
+    // eigener Emission (Durchschnitt des bereits gebackenen direkten
+    // Lichts unter diesem Block). Das ergibt echte Farbuebertragung
+    // (Color Bleeding) und einen Gradienten statt einer flachen
+    // Aufhellung pro Polygon.
+    //
+    // Occlusion/Nearest-Hit laeuft ueber einen intern gebauten BSPTree,
+    // dessen Polygone per objectId auf ihren Index in "occluderPolys"
+    // zurueckverweisen (NICHT auf einen Patch-Index - ein Polygon hat ja
+    // mehrere Patches). Aus Trefferpunkt + Index wird der getroffene
+    // Block per UV-Projektion bestimmt.
+    //
+    // Extra-Polygone (Glas, Wasser) EMPFANGEN indirektes Licht
+    // (ApplyRadiosityToExtras), senden aber keins und blockieren nichts.
+    // Sie TOENEN jedoch das Licht, das durch sie hindurchgeht
+    // (RadiosityGlass / TraceThroughGlass).
+    //
+    // Multithreading: RunRadiosityBounces und ApplyRadiosityToExtras laufen
+    // ueber ParallelFor. Der RNG wird pro Patch/Polygon geseedet, das
+    // Ergebnis ist daher unabhaengig von der Threadanzahl.
+    // ================================================================
+
+    // ------------------------------------------------------------
+    // Threading-Helfer
+    // ------------------------------------------------------------
+    inline uint32_t HashSeed(uint32_t a, uint32_t b, uint32_t c)
+    {
+        uint32_t h = a * 0x9E3779B1u;
+        h ^= b + 0x85EBCA6Bu + (h << 6) + (h >> 2);
+        h ^= c + 0xC2B2AE35u + (h << 6) + (h >> 2);
+        h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16;
+        return h;
+    }
+
+    // Verteilt [0,count) dynamisch in Chunks auf alle Kerne. Der Hauptthread arbeitet mit.
+    template<class F>
+    void ParallelFor(size_t count, F&& body, size_t chunk = 64)
+    {
+        if (count == 0) return;
+        chunk = std::max<size_t>(1, chunk);
+
+        const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+        const unsigned nThreads = (unsigned)std::min<size_t>(hw, (count + chunk - 1) / chunk);
+
+        std::atomic<size_t> next{ 0 };
+        auto worker = [&]()
+            {
+                for (;;)
+                {
+                    const size_t begin = next.fetch_add(chunk);
+                    if (begin >= count) break;
+                    const size_t end = std::min(begin + chunk, count);
+                    for (size_t i = begin; i < end; ++i) body(i);
+                }
+            };
+
+        if (nThreads <= 1) { worker(); return; }
+
+        std::vector<std::thread> threads;
+        threads.reserve(nThreads - 1);
+        for (unsigned t = 1; t < nThreads; ++t) threads.emplace_back(worker);
+        worker();
+        for (auto& th : threads) th.join();
+    }
+
+    // Komponentenweise Multiplikation
+    template<class T>
+    inline Vec3<T> MulC(const Vec3<T>& a, const Vec3<T>& b)
+    {
+        return Vec3<T>(a(0) * b(0), a(1) * b(1), a(2) * b(2));
+    }
+
+    // ------------------------------------------------------------
     // RadiosityLookup
     //
     // Ordnet einem Polygon-Index (Position in occluderPolys) den
@@ -38,7 +107,7 @@ namespace ng::lightning {
     template<class T>
     struct RadiosityOptions
     {
-		bool   buildDirectRadiosity = true;   // nur im commpiler thread wichtig
+        bool   buildDirectRadiosity = true;   // nur im Compiler-Thread wichtig
         int    bounces = 4;
         int    samplesPerPatch = 32;
         double maxRayDistance = 4096.0;
@@ -61,7 +130,7 @@ namespace ng::lightning {
         T textureEmissionStrength = T(0);
 
         // Obergrenze fuer den Wert (max. Kanal) eines einzelnen Strahl-Treffers.
-// Verhindert Firefly-Flecken durch kleine, sehr helle Quellen.
+        // Verhindert Firefly-Flecken durch kleine, sehr helle Quellen.
         double maxSampleValue = 64.0;
 
         // Anzahl Blur-Durchlaeufe auf dem eingehenden Licht pro Bounce (0 = aus).
@@ -78,11 +147,21 @@ namespace ng::lightning {
         Vec3<T> albedo;
         Vec3<T> residual;
         Vec3<T> accumulated;
+        Vec3<T> initial;   // Bounce 0: direkt reflektiertes Licht (+ Emission), wird fuer Extras gebraucht
     };
 
-   
     enum class PatchDumpMode { Albedo, Residual, Accumulated };
 
+    // ------------------------------------------------------------
+    // Glas / Wasser: eigener BSP-Baum nur aus den Extras.
+    // objectId im Baum = Index in "tint".
+    // ------------------------------------------------------------
+    template<class T>
+    struct RadiosityGlass
+    {
+        std::unique_ptr<ng::bsp::BSPTree<T>> tree;
+        std::vector<Vec3<T>> tint;
+    };
 
     template<class T>
     void BlurIncoming(std::vector<Vec3<T>>& incoming, const RadiosityLookup& lookup)
@@ -185,12 +264,13 @@ namespace ng::lightning {
 
         img.SaveAsBMP(path);
     }
+
     // ------------------------------------------------------------
-// ComputePolygonAlbedo
-//
-// Grobe Durchschnittsfarbe der Diffuse-Textur (0..1). Ohne Textur
-// wird ein neutrales Grau angenommen.
-// ------------------------------------------------------------
+    // ComputePolygonAlbedo
+    //
+    // Grobe Durchschnittsfarbe der Diffuse-Textur (0..1). Ohne Textur
+    // wird ein neutrales Grau angenommen.
+    // ------------------------------------------------------------
     template<class T>
     Vec3<T> ComputePolygonAlbedo(const ng::bsp::BSPPolygon<T>& poly)
     {
@@ -226,7 +306,6 @@ namespace ng::lightning {
             T(double(sb) / double(count)) / T(255));
     }
 
-    
     template<class T>
     void NormalizePatchAlbedo(std::vector<RadiosityPatch<T>>& patches,
         double targetMean, double maxAlbedo)
@@ -253,49 +332,13 @@ namespace ng::lightning {
         printf("[Radiosity] Albedo normalisiert: Mittel %.3f -> Ziel %.2f (Faktor %.2f)\n",
             mean, targetMean, s);
     }
+
     // ------------------------------------------------------------
-    // BuildRadiosityOcclusionTree
+    // ApplyRadiosityToAtlas
     //
-    // Baut einen eigenstaendigen BSPTree aus Kopien von "occluderPolys",
-    // wobei jedes Polygon per objectId auf seinen Index im patches-
-    // Array zurueckverweist. So kann BSPRayNearestHit() nach einem
-    // Treffer direkt den zugehoerigen Patch nachschlagen, ohne selbst
-    // ueber alle Patches iterieren zu muessen.
+    // Schreibt patch.accumulated additiv in den Atlas. Zwischen den
+    // Blockmitten wird bilinear interpoliert (innerhalb des Polygons).
     // ------------------------------------------------------------
-    template<class T>
-    std::unique_ptr<ng::bsp::BSPTree<T>> BuildRadiosityOcclusionTree(
-        const std::vector<RadiosityPatch<T>>& patches)
-    {
-        std::vector<ng::bsp::BSPPolygon<T>> work;
-        work.reserve(patches.size());
-
-        for (size_t i = 0; i < patches.size(); ++i)
-        {
-            ng::bsp::BSPPolygon<T> copy = *patches[i].poly;
-            copy.objectId = (uint32_t)i; // Zweckentfremdet: Patch-Index
-            work.push_back(std::move(copy));
-        }
-
-        auto tree = std::make_unique<ng::bsp::BSPTree<T>>();
-        tree->SetVerbose(false);
-        tree->Build(work);
-        // Keine Portale noetig - wir brauchen nur FindLeafId-artiges
-        // Ray-Traversal (BSPRayTest), nicht BuildPortals().
-        return tree;
-    }
-
-   
-
- 
-   
-    
-   // ------------------------------------------------------------
-   // ApplyRadiosityToAtlas
-   //
-   // Schreibt patch.accumulated additiv ueber genau den Block
-   // (x0..x1, y0..y1), den dieser Patch abdeckt.
-   // ------------------------------------------------------------
-   
     template<class T>
     void ApplyRadiosityToAtlas(LightMapAtlas& atlas,
         const std::vector<RadiosityPatch<T>>& patches,
@@ -357,7 +400,6 @@ namespace ng::lightning {
         }
     }
 
-    
     // ------------------------------------------------------------
     // TexUVAtPoint
     //
@@ -439,13 +481,15 @@ namespace ng::lightning {
             }
         return n ? sum * (T(1) / T(n)) : Vec3<T>(0, 0, 0);
     }
-// ComputeBlockAlbedo
-//
-// Durchschnittliche Diffuse-Texturfarbe (0..1) unter einem Lightmap-
-// Texel-Block, per Multi-Sample (Texelmitten). Der Farbton bleibt beim
-// Begrenzen erhalten: es wird nur der hellste Kanal auf [albedoMin,
-// albedoMax] gebracht und die anderen Kanaele proportional mitskaliert.
-// ------------------------------------------------------------
+
+    // ------------------------------------------------------------
+    // ComputeBlockAlbedo
+    //
+    // Durchschnittliche Diffuse-Texturfarbe (0..1) unter einem Lightmap-
+    // Texel-Block, per Multi-Sample (Texelmitten). Der Farbton bleibt beim
+    // Begrenzen erhalten: es wird nur der hellste Kanal auf [albedoMin,
+    // albedoMax] gebracht und die anderen Kanaele proportional mitskaliert.
+    // ------------------------------------------------------------
     template<class T>
     Vec3<T> ComputeBlockAlbedo(const ng::bsp::BSPPolygon<T>& poly,
         int x0, int y0, int x1, int y1, T albedoMin, T albedoMax)
@@ -521,7 +565,6 @@ namespace ng::lightning {
         return Vec3<T>(T(double(sr) / n), T(double(sg) / n), T(double(sb) / n));
     }
 
-   
     // ------------------------------------------------------------
     // BuildRadiosityPatches
     //
@@ -597,22 +640,10 @@ namespace ng::lightning {
                     for (int c = 0; c < 3; ++c)
                         directLight(c) = std::max(T(0), directLight(c) - T(opt.ambientFloor));
 
-
                     Vec3<T> reflected(
                         directLight(0) * patch.albedo(0),
                         directLight(1) * patch.albedo(1),
                         directLight(2) * patch.albedo(2));
-
-                    /*
-                    Vec3<T> emission(0, 0, 0);
-                    if (opt.textureEmissionStrength > T(0))
-                    {
-                        emission = Vec3<T>(
-                            patch.albedo(0) * T(255) * opt.textureEmissionStrength,
-                            patch.albedo(1) * T(255) * opt.textureEmissionStrength,
-                            patch.albedo(2) * T(255) * opt.textureEmissionStrength);
-                    }
-                    */
 
                     Vec3<T> emission(0, 0, 0);
                     if (opt.textureEmissionStrength > T(0))
@@ -621,10 +652,8 @@ namespace ng::lightning {
                         emission = raw * (T(255) * opt.textureEmissionStrength);
                     }
 
-
-
-
                     patch.residual = reflected + emission;
+                    patch.initial = patch.residual;
                     patch.accumulated = Vec3<T>(0, 0, 0);
 
                     // ---- DEBUG: erster Block jedes der ersten Polygone ----
@@ -650,6 +679,9 @@ namespace ng::lightning {
     // objectId verweist auf den POLYGON-Index in occluderPolys (nicht
     // auf einen Patch!) - SplitPolygon() kopiert objectId mit, bleibt
     // also auch nach BSP-Splits korrekt.
+    //
+    // T-Junction-Fix und Normalen-Smoothing sind fuer einen reinen
+    // Occlusion-Baum unnoetig und teuer -> aus.
     // ------------------------------------------------------------
     template<class T>
     std::unique_ptr<ng::bsp::BSPTree<T>> BuildRadiosityOcclusionTree(
@@ -667,38 +699,120 @@ namespace ng::lightning {
 
         auto tree = std::make_unique<ng::bsp::BSPTree<T>>();
         tree->SetVerbose(false);
-        tree->Build(work);
+
+        ng::bsp::BSPOptions<T> o;
+        o.fixTJunctions = false;
+        o.rebuild_normals = false;
+        tree->Build(work, o);
+
         return tree;
     }
 
     // ------------------------------------------------------------
-    // CosineWeightedHemisphereSample  (unveraendert)
+    // BuildRadiosityGlass
+    //
+    // Baut aus den Extra-Polygonen (Glas, Wasser, ...) einen eigenen BSP-Baum
+    // und eine Toenungstabelle. objectId im Baum = Index in "tint".
+    //
+    // Transmission: (1 - alpha) laesst Licht ungefaerbt durch, alpha * albedo
+    // faerbt es.
+    // ANNAHME: alpha() liegt in 0..1. Falls 0..255: durch 255 teilen!
     // ------------------------------------------------------------
-    /*
+    template<class T>
+    RadiosityGlass<T> BuildRadiosityGlass(const std::vector<ng::bsp::BSPPolygon<T>>& extras)
+    {
+        RadiosityGlass<T> g;
+        std::vector<ng::bsp::BSPPolygon<T>> work;
+        work.reserve(extras.size());
+
+        for (const auto& src : extras)
+        {
+            if (src.verts.size() < 3) continue;
+
+            auto copy = src;
+            copy.objectId = (uint32_t)g.tint.size();
+
+            double a = 0;
+            for (const auto& v : copy.verts) a += (double)v.alpha();
+            a = std::clamp(a / (double)copy.verts.size(), 0.0, 1.0);
+
+            const Vec3<T> alb = ComputePolygonAlbedo(copy);
+            g.tint.push_back(Vec3<T>(
+                T((1.0 - a) + a * (double)alb(0)),
+                T((1.0 - a) + a * (double)alb(1)),
+                T((1.0 - a) + a * (double)alb(2))));
+
+            work.push_back(std::move(copy));
+        }
+
+        if (work.empty()) return g;   // tree bleibt nullptr
+
+        g.tree = std::make_unique<ng::bsp::BSPTree<T>>();
+        g.tree->SetVerbose(false);
+
+        ng::bsp::BSPOptions<T> o;
+        o.fixTJunctions = false;
+        o.rebuild_normals = false;
+        g.tree->Build(work, o);
+        return g;
+    }
+
+    // ------------------------------------------------------------
+    // TraceThroughGlass
+    //
+    // Strahl durch Glas hindurch bis zum naechsten opaken Treffer.
+    // "tint" = Produkt aller durchquerten Glas-Toenungen.
+    // hit.t ist relativ zum ORIGINAL-Ursprung.
+    // ------------------------------------------------------------
+    template<class T>
+    bsp::BSPRayHit<T> TraceThroughGlass(
+        const ng::bsp::BSPTree<T>& opaque,
+        const RadiosityGlass<T>* glass,
+        const Vec3<T>& origin, const Vec3<T>& dir,
+        T maxDist, T eps, Vec3<T>& tint)
+    {
+        tint = Vec3<T>(1, 1, 1);
+
+        if (!glass || !glass->tree)
+            return BSPRayNearestHit(opaque, origin, dir, maxDist, eps);
+
+        Vec3<T> o = origin;
+        T travelled = T(0);
+
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            const T remaining = maxDist - travelled;
+            if (remaining <= eps) break;
+
+            auto hO = BSPRayNearestHit(opaque, o, dir, remaining, eps);
+            const T limit = hO.hit ? hO.t : remaining;
+            auto hG = BSPRayNearestHit(*glass->tree, o, dir, limit, eps);
+
+            if (!hG.hit || !hG.poly)
+            {
+                if (hO.hit) hO.t += travelled;
+                return hO;
+            }
+
+            const uint32_t id = hG.poly->objectId;
+            if (id < glass->tint.size())
+                tint = MulC(tint, glass->tint[id]);
+
+            const T adv = hG.t + eps;          // knapp hinter die Glasebene
+            o = o + dir * adv;
+            travelled += adv;
+        }
+        return bsp::BSPRayHit<T>{};            // zu viele Durchgaenge: kein Treffer
+    }
+
+    // ------------------------------------------------------------
+    // CosineWeightedHemisphereSample
+    // ------------------------------------------------------------
     template<class T>
     Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, double u1, double u2)
     {
         const double r = std::sqrt(u1);
         const double theta = 2.0 * 3.14159265358979323846 * u2;
-        const double lx = r * std::cos(theta);
-        const double ly = r * std::sin(theta);
-        const double lz = std::sqrt(std::max(0.0, 1.0 - u1));
-
-        Vec3<T> axis(0, 0, 0);
-        if (std::abs(normal(0)) <= std::abs(normal(1)) && std::abs(normal(0)) <= std::abs(normal(2))) axis(0) = T(1);
-        else if (std::abs(normal(1)) <= std::abs(normal(2))) axis(1) = T(1);
-        else axis(2) = T(1);
-
-        Vec3<T> tangent = axis % normal; tangent.normalize();
-        Vec3<T> bitangent = normal % tangent; bitangent.normalize();
-        return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
-    }
-    */
-    template<class T>
-    Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, double u1, double u2)
-    {
-        const double r = std::sqrt(u1);
-        const double theta = 2.0 * 3.14159265358979323846 * u2;
 
         const double lx = r * std::cos(theta);
         const double ly = r * std::sin(theta);
@@ -714,32 +828,7 @@ namespace ng::lightning {
 
         return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
     }
-    /*
-    template<class T>
-    Vec3<T> CosineWeightedHemisphereSample(const Vec3<T>& normal, std::mt19937& rng)
-    {
-        std::uniform_real_distribution<double> dist(0.0, 1.0);
-        const double u1 = dist(rng);
-        const double u2 = dist(rng);
 
-        const double r = std::sqrt(u1);
-        const double theta = 2.0 * 3.14159265358979323846 * u2;
-
-        const double lx = r * std::cos(theta);
-        const double ly = r * std::sin(theta);
-        const double lz = std::sqrt(std::max(0.0, 1.0 - u1));
-
-        Vec3<T> axis(0, 0, 0);
-        if (std::abs(normal(0)) <= std::abs(normal(1)) && std::abs(normal(0)) <= std::abs(normal(2))) axis(0) = T(1);
-        else if (std::abs(normal(1)) <= std::abs(normal(2))) axis(1) = T(1);
-        else axis(2) = T(1);
-
-        Vec3<T> tangent = axis % normal; tangent.normalize();
-        Vec3<T> bitangent = normal % tangent; bitangent.normalize();
-
-        return tangent * T(lx) + bitangent * T(ly) + normal * T(lz);
-    }
-    */
     // ------------------------------------------------------------
     // FindPatchForHit
     //
@@ -777,26 +866,26 @@ namespace ng::lightning {
         return lookup.patchOffset[polyIdx] + by * bw + bx;
     }
 
-   
-
-
     // ------------------------------------------------------------
-// RunRadiosityBounces
-//
-// Jacobi-Iteration ueber alle Patches. Pro Empfaenger werden
-// stratifizierte, cosinus-gewichtete Strahlen geschossen (n x n Raster
-// mit Jitter), jeder Treffer wird auf "maxSampleValue" begrenzt und das
-// Ergebnis anschliessend innerhalb des Polygons geglaettet.
-// ------------------------------------------------------------
+    // RunRadiosityBounces
+    //
+    // Jacobi-Iteration ueber alle Patches, multithreaded. Pro Empfaenger
+    // werden stratifizierte, cosinus-gewichtete Strahlen geschossen
+    // (n x n Raster mit Jitter), jeder Treffer wird auf "maxSampleValue"
+    // begrenzt und das Ergebnis anschliessend innerhalb des Polygons
+    // geglaettet. Strahlen laufen durch Glas/Wasser und werden getoent.
+    //
+    // Thread-Sicherheit: innerhalb eines Bounces wird "patches" nur
+    // gelesen; jeder Durchlauf schreibt ausschliesslich incoming[i].
+    // ------------------------------------------------------------
     template<class T>
     void RunRadiosityBounces(std::vector<RadiosityPatch<T>>& patches,
         const ng::bsp::BSPTree<T>& occlusionTree,
+        const RadiosityGlass<T>* glass,
         const std::vector<ng::bsp::BSPPolygon<T>>& occluderPolys,
         const RadiosityLookup& lookup,
         const RadiosityOptions<T>& opt)
     {
-        std::mt19937 rng(opt.randomSeed);
-        std::uniform_real_distribution<double> jit(0.0, 1.0);
         std::vector<Vec3<T>> incoming(patches.size());
 
         // Stratifiziertes Raster: n x n Zellen
@@ -807,46 +896,60 @@ namespace ng::lightning {
 
         for (int bounce = 0; bounce < opt.bounces; ++bounce)
         {
-            long long totalRays = 0, totalHits = 0;
+            std::atomic<long long> totalRays{ 0 }, totalHits{ 0 };
+            std::atomic<size_t> progress{ 0 };
 
-            for (size_t i = 0; i < patches.size(); ++i)
-            {
-                const auto& receiver = patches[i];
-                Vec3<T> sum(0, 0, 0);
-
-                for (int sy = 0; sy < n; ++sy)
+            ParallelFor(patches.size(), [&](size_t i)
                 {
-                    for (int sx = 0; sx < n; ++sx)
+                    std::mt19937 rng(HashSeed(opt.randomSeed, (uint32_t)i, (uint32_t)bounce));
+                    std::uniform_real_distribution<double> jit(0.0, 1.0);
+
+                    const auto& receiver = patches[i];
+                    Vec3<T> sum(0, 0, 0);
+                    long long rays = 0, hits = 0;
+
+                    for (int sy = 0; sy < n; ++sy)
                     {
-                        ++totalRays;
+                        for (int sx = 0; sx < n; ++sx)
+                        {
+                            ++rays;
 
-                        const double u1 = (sx + jit(rng)) / n;
-                        const double u2 = (sy + jit(rng)) / n;
-                        const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, u1, u2);
+                            const double u1 = (sx + jit(rng)) / n;
+                            const double u2 = (sy + jit(rng)) / n;
+                            const Vec3<T> dir = CosineWeightedHemisphereSample(receiver.normal, u1, u2);
 
-                        auto hit = BSPRayNearestHit(occlusionTree, receiver.center, dir,
-                            (T)opt.maxRayDistance, (T)opt.epsilon);
+                            Vec3<T> tint;
+                            auto hit = TraceThroughGlass(occlusionTree, glass, receiver.center, dir,
+                                (T)opt.maxRayDistance, (T)opt.epsilon, tint);
 
-                        if (!hit.hit) continue;
-                        ++totalHits;
+                            if (!hit.hit) continue;
+                            ++hits;
 
-                        const Vec3<T> hitPoint = receiver.center + dir * hit.t;
-                        const int patchIdx = FindPatchForHit(hit, hitPoint, occluderPolys, lookup, opt.blockSize);
-                        if (patchIdx < 0 || (size_t)patchIdx >= patches.size()) continue;
+                            const Vec3<T> hitPoint = receiver.center + dir * hit.t;
+                            const int patchIdx = FindPatchForHit(hit, hitPoint, occluderPolys, lookup, opt.blockSize);
+                            if (patchIdx < 0 || (size_t)patchIdx >= patches.size()) continue;
 
-                        // Firefly-Clamp: max. Kanal begrenzen, Farbton erhalten
-                        Vec3<T> r = patches[patchIdx].residual;
-                        const T m = std::max({ r(0), r(1), r(2) });
-                        if (maxSample > T(0) && m > maxSample)
-                            r = r * (maxSample / m);
+                            Vec3<T> r = MulC(patches[patchIdx].residual, tint);
 
-                        sum = sum + r;
+                            // Firefly-Clamp: max. Kanal begrenzen, Farbton erhalten
+                            const T m = std::max({ r(0), r(1), r(2) });
+                            if (maxSample > T(0) && m > maxSample)
+                                r = r * (maxSample / m);
+
+                            sum = sum + r;
+                        }
                     }
-                }
 
-                // Cosinus-gewichtetes Sampling: Mittelwert der Treffer-Radiosity
-                incoming[i] = sum * invTotal;
-            }
+                    // Cosinus-gewichtetes Sampling: Mittelwert der Treffer-Radiosity
+                    incoming[i] = sum * invTotal;
+                    totalRays += rays;
+                    totalHits += hits;
+
+                    const size_t p = ++progress;
+                    if ((p & 255) == 0)
+                        printf("[Radiosity] Bounce %d / %d: %.1f%%\r",
+                            bounce + 1, opt.bounces, 100.0 * (double)p / (double)patches.size());
+                });
 
             // Rauschen im Patch-Raum glaetten (nur innerhalb eines Polygons)
             for (int b = 0; b < opt.blurPasses; ++b)
@@ -861,38 +964,140 @@ namespace ng::lightning {
                     incoming[i](2) * patches[i].albedo(2));
             }
 
-            printf("[Radiosity] Bounce %d / %d: Hit-Rate %lld/%lld (%.1f%%), Patches=%zu\n",
-                bounce + 1, opt.bounces, totalHits, totalRays,
-                totalRays > 0 ? 100.0 * totalHits / totalRays : 0.0, patches.size());
+            const long long tr = totalRays.load(), th = totalHits.load();
+            printf("[Radiosity] Bounce %d / %d: Hit-Rate %lld/%lld (%.1f%%), Patches=%zu          \n",
+                bounce + 1, opt.bounces, th, tr,
+                tr > 0 ? 100.0 * (double)th / (double)tr : 0.0, patches.size());
         }
     }
 
+    // ------------------------------------------------------------
+    // ApplyRadiosityToExtras
+    //
+    // Indirektes Licht fuer Extra-Polygone (Glas, Wasser, ...).
+    // Pro Texel werden cosinus-gewichtete Strahlen in BEIDE Halbraeume
+    // geschossen. Getroffen werden nur opake Patches; Strahlen laufen
+    // durch weitere Extras (getoent). Das eingesammelte Licht ist das,
+    // was die getroffenen Patches abstrahlen:
+    //     initial (direkt reflektiert) + accumulated * albedo (indirekt)
+    // Extras senden selbst kein Licht und blockieren keins.
+    //
+    // Parallelisiert pro Polygon; jedes Polygon schreibt nur in seinen
+    // eigenen Atlas-Bereich (Rechtecke duerfen sich nicht ueberlappen).
+    // ------------------------------------------------------------
+    template<class T>
+    void ApplyRadiosityToExtras(LightMapAtlas& atlas,
+        std::vector<ng::bsp::BSPPolygon<T>>& extras,
+        const ng::bsp::BSPTree<T>& tree,
+        const RadiosityGlass<T>* glass,
+        const std::vector<RadiosityPatch<T>>& patches,
+        const std::vector<ng::bsp::BSPPolygon<T>>& occluderPolys,
+        const RadiosityLookup& lookup,
+        const RadiosityOptions<T>& opt)
+    {
+        const int n = std::max(1, (int)std::ceil(std::sqrt((double)std::max(1, opt.samplesPerPatch))));
+        std::atomic<size_t> done{ 0 };
 
+        ParallelFor(extras.size(), [&](size_t k)
+            {
+                auto& poly = extras[k];
+                if (poly.verts.size() < 3 || poly.lmWidth <= 0 || poly.lmHeight <= 0) return;
 
+                std::mt19937 rng(HashSeed(opt.randomSeed + 7u, (uint32_t)k, 0u));
+                std::uniform_real_distribution<double> jit(0.0, 1.0);
 
+                const Vec3<T> N = poly.plane.normal();
 
+                for (int y = 0; y < poly.lmHeight; ++y)
+                {
+                    for (int x = 0; x < poly.lmWidth; ++x)
+                    {
+                        const T fu = (T(x) + T(0.5)) / T(poly.lmWidth);
+                        const T fv = (T(y) + T(0.5)) / T(poly.lmHeight);
+                        const Vec3<T> p = poly.lmOrigin + poly.lmEdgeU * fu + poly.lmEdgeV * fv;
 
+                        Vec3<T> sum(0, 0, 0);
+                        int cnt = 0;
 
+                        for (int side = -1; side <= 1; side += 2)   // beide Halbraeume
+                        {
+                            const Vec3<T> nn = N * T(side);
+                            const Vec3<T> start = p + nn * T(0.5);
 
+                            for (int sy = 0; sy < n; ++sy)
+                            {
+                                for (int sx = 0; sx < n; ++sx)
+                                {
+                                    ++cnt;
+                                    const Vec3<T> dir = CosineWeightedHemisphereSample(
+                                        nn, (sx + jit(rng)) / n, (sy + jit(rng)) / n);
 
-  
-   // ------------------------------------------------------------
-// BakeRadiosity
-// ------------------------------------------------------------
+                                    Vec3<T> tint;
+                                    auto hit = TraceThroughGlass(tree, glass, start, dir,
+                                        (T)opt.maxRayDistance, (T)opt.epsilon, tint);
+                                    if (!hit.hit) continue;
+
+                                    const Vec3<T> hp = start + dir * hit.t;
+                                    const int pi = FindPatchForHit(hit, hp, occluderPolys, lookup, opt.blockSize);
+                                    if (pi < 0 || (size_t)pi >= patches.size()) continue;
+
+                                    const auto& s = patches[pi];
+                                    Vec3<T> out(
+                                        s.initial(0) + s.accumulated(0) * s.albedo(0),
+                                        s.initial(1) + s.accumulated(1) * s.albedo(1),
+                                        s.initial(2) + s.accumulated(2) * s.albedo(2));
+
+                                    out = MulC(out, tint);
+
+                                    const T m = std::max({ out(0), out(1), out(2) });
+                                    if (opt.maxSampleValue > 0 && m > T(opt.maxSampleValue))
+                                        out = out * (T(opt.maxSampleValue) / m);
+
+                                    sum = sum + out;
+                                }
+                            }
+                        }
+
+                        if (cnt == 0) continue;
+                        sum = sum * (T(1) / T(cnt)) * T(opt.indirectGain);
+
+                        const int xx = poly.lmPosX + x, yy = poly.lmPosY + y;
+                        const uint32_t e = atlas.Buffer().GetPixel(xx, yy);
+                        atlas.Buffer().PutPixel(xx, yy, RGB(
+                            std::min(255u, RGBToRed(e) + (uint32_t)std::clamp((double)sum(0), 0.0, 255.0)),
+                            std::min(255u, RGBToGreen(e) + (uint32_t)std::clamp((double)sum(1), 0.0, 255.0)),
+                            std::min(255u, RGBToBlue(e) + (uint32_t)std::clamp((double)sum(2), 0.0, 255.0))));
+                    }
+                }
+                ++done;
+            }, /*chunk=*/1);
+
+        printf("[Radiosity] Extras: %zu Polygone mit indirektem Licht versehen.\n", done.load());
+    }
+
+    // ------------------------------------------------------------
+    // BakeRadiosity
+    //
+    // "extraPolys" (optional): Wasser/Glas usw. - muessen vorher per
+    // BakeExtraPolygonLightmaps() in den Atlas gepackt worden sein.
+    // ------------------------------------------------------------
     template<class T>
     void BakeRadiosity(LightMapAtlas& atlas,
         const std::vector<ng::bsp::BSPPolygon<T>>& occluderPolys,
-        const RadiosityOptions<T>& opt = RadiosityOptions<T>())
+        const RadiosityOptions<T>& opt = RadiosityOptions<T>(),
+        std::vector<ng::bsp::BSPPolygon<T>>* extraPolys = nullptr)
     {
-        printf("[Radiosity] BUILD-MARKER v2\n");   // <-- LOG 1
         printf("[Radiosity] indirectGain=%.1f ambientFloor=%.1f\n", opt.indirectGain, opt.ambientFloor);
-        
+
         RadiosityLookup lookup;
         auto patches = BuildRadiosityPatches(atlas, occluderPolys, opt, lookup);
         NormalizePatchAlbedo(patches, 0.5, opt.albedoMax);
-        // Initialisierung
-        DumpPatchesBMP(atlas, patches, "rad_init_albedo.bmp", PatchDumpMode::Albedo);
-        DumpPatchesBMP(atlas, patches, "rad_init_residual.bmp", PatchDumpMode::Residual, 4.0f);
+
+        // initial NACH der Normalisierung festhalten (residual wurde mitskaliert)
+        for (auto& p : patches) p.initial = p.residual;
+
+        // DumpPatchesBMP(atlas, patches, "rad_init_albedo.bmp", PatchDumpMode::Albedo);
+        // DumpPatchesBMP(atlas, patches, "rad_init_residual.bmp", PatchDumpMode::Residual, 4.0f);
 
         printf("[Radiosity] %zu Patches (Blockgroesse %d), %d Bounces, %d Samples/Patch\n",
             patches.size(), opt.blockSize, opt.bounces, opt.samplesPerPatch);
@@ -903,7 +1108,7 @@ namespace ng::lightning {
             return;
         }
 
-        // --- LOG 2: Sender-Statistik (vor den Bounces) ---
+        // --- Sender-Statistik (vor den Bounces) ---
         {
             size_t lit = 0;
             double maxRes = 0;
@@ -917,14 +1122,20 @@ namespace ng::lightning {
                 lit, patches.size(), maxRes);
         }
 
+        printf("[Radiosity] Build BuildRadiosityOcclusionTree\n");
         auto occlusionTree = BuildRadiosityOcclusionTree(occluderPolys);
 
-        RunRadiosityBounces(patches, *occlusionTree, occluderPolys, lookup, opt);
+        // Glas/Wasser: eigener Baum + Toenungstabelle
+        RadiosityGlass<T> glass;
+        if (extraPolys && !extraPolys->empty())
+            glass = BuildRadiosityGlass(*extraPolys);
+        const RadiosityGlass<T>* glassPtr = glass.tree ? &glass : nullptr;
 
-        DumpPatchesBMP(atlas, patches, "rad_accumulated.bmp", PatchDumpMode::Accumulated,
-            4.0f, (float)opt.indirectGain);
+        RunRadiosityBounces(patches, *occlusionTree, glassPtr, occluderPolys, lookup, opt);
 
-        // --- LOG 3: Ergebnis-Statistik (nach den Bounces) ---
+        // DumpPatchesBMP(atlas, patches, "rad_accumulated.bmp", PatchDumpMode::Accumulated, 4.0f, (float)opt.indirectGain);
+
+        // --- Ergebnis-Statistik (nach den Bounces) ---
         {
             double maxAcc = 0, sumAcc = 0;
             for (const auto& p : patches)
@@ -936,8 +1147,18 @@ namespace ng::lightning {
             printf("[Radiosity] accumulated: max=%.1f avg=%.2f\n", maxAcc, sumAcc / patches.size());
         }
 
-        //ApplyRadiosityToAtlas(atlas, patches, opt);   // <-- mit opt!
+        printf("[Radiosity] ApplyRadiosityToAtlas\n");
         ApplyRadiosityToAtlas(atlas, patches, lookup, opt);
-        printf("[Radiosity] fertig.\n");
+
+        if (extraPolys && !extraPolys->empty())
+        {
+            printf("[Radiosity] ApplyRadiosityToExtras %zu\n", extraPolys->size());
+            ApplyRadiosityToExtras(atlas, *extraPolys, *occlusionTree, glassPtr,
+                patches, occluderPolys, lookup, opt);
+        }
+        else
+        {
+            printf("[Radiosity] ApplyRadiosityToExtras NONE\n");
+        }
     }
 }

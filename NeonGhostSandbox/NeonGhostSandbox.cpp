@@ -36,6 +36,8 @@
 
 NG_BIND_MANAGER
 
+
+
 #define NG_USE_STATIC_MESH_ONLY
 
 const size_t MAX_POLY_COUNTS = 100;   
@@ -47,7 +49,7 @@ static ng::tools::FPSCounter m_fps_counter;
 static ng::renderer::gfx::Texture m_bsp_lightmap;
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 static auto *dynFX = mgr.AddEffect<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>>();
-static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
+//static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
 //static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
 
 
@@ -163,20 +165,12 @@ inline void Render() {
 
     m_fps_counter.Update();
 
-    // Frame
-    m_light_gun.Update(deltaTime, m_bsp_scene.m_cells.Tree());
-    lights.clear();
-    m_light_gun.Gather(lights);
-
     m_render_pipeline_3d.Begin();
-
-
 
         m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE /* | ng::renderer::rasterizer::RASTER_VERTEXCOLOR*/ | ng::renderer::rasterizer::RASTER_TEXTURE;
     if (m_use_lightmap) m_rasterizer_3d.State().flags |= ng::renderer::rasterizer::RASTER_LIGHTMAP;
 
-    //uint32_t medium=m_render_pipeline_3d.RenderWorld(m_bsp_scene.m_cells, m_bsp_scene.m_pvs, m_bsp_lightmap);
-   
+    
     m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
 
     uint32_t medium = m_render_pipeline_3d.RenderWorld(
@@ -185,34 +179,14 @@ inline void Render() {
         [](int /*materialId*/) {});   // oder dein echter Material-Binder
 
     m_rasterizer_3d.State().lmCorrection = &m_lmCorr;
-
     m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
     
-    /*
-    for (auto l : lights) {
-        auto m = ng::renderer::objects::MeshGenerator<NG_MATH_FLOAT>::CreateSphere(5);
-            //::CreateCube(1, l.color);
-        m.SetVertexColor(l.color);
-        m.SetPosition(l.pos);
-        m_render_pipeline_3d.RenderMesh(m);
-
-    }
-    */
-
+    
     m_render_pipeline_3d.End();
-    //ng::lightning::ApplyDynamicLightsDebug(m_render_pipeline_3d,lights, &m_bsp_scene.m_cells);
     const auto vb = m_render_pipeline_3d.GetViewBasis();
   
-    /*
-    ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::View v{ vb.pos, vb.right, vb.up, vb.forward, vb.p00, vb.p11 };
-    dynFX->SetView(v);
-    std::vector<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>::Light> fl;
-    for (const auto& l : lights) fl.push_back({ l.pos, l.color, l.intensity, l.radius });
-    dynFX->SetLights(fl);
-*/
     mgr.Apply(totalTime);    // 
 
-//    if (m_use_after_fx)mgr.Apply(totalTime);
     if (medium & ng::map::BrushFace<NG_MATH_FLOAT>::LIQUID) mgr.Apply(totalTime);
 
   
@@ -339,7 +313,6 @@ DistributeObjectsInCube(
 
 void InitStuff() {
 
-
     m_camera.aspect() = (double)m_rasterizer_3d.Width() / (double)m_rasterizer_3d.Height();
     m_camera.fov() = ng::math::degreesToRadians(64.0);
     m_camera.nearp() = 0.0001;
@@ -352,39 +325,33 @@ void InitStuff() {
 
 
 
-    // compiler settings
-    lmOpt.buildDirectLight = false;
-    lmOpt.texelDensity = 2.0;        // feiner als der HL-Standard (16.0)
-    lmOpt.maxLightmapSize = 128;     // groessere Patches erlauben
+    // compiler settings (Final)
+    lmOpt.buildDirectLight = true;   // false nur, wenn Direktlicht separat kommt
+    lmOpt.texelDensity = 4.0;        // 3.0 bei kleinen Maps, 8.0 fuer Drafts
+    lmOpt.maxLightmapSize = 64;
     lmOpt.maxAtlasSize = 8192;
-    lmOpt.kAmbientFloor = 20;
-    lmOpt.onlyCoveredTexels = true;
-    lmOpt.coverageMargin = 1.0;
+    lmOpt.kAmbientFloor = 10;
+    lmOpt.onlyCoveredTexels = false;
+    lmOpt.coverageMargin = 1.5;
+    lmOpt.gain = 1;
+    radOpt.buildDirectRadiosity = true;
 
-
-    radOpt.buildDirectRadiosity = false;
-    
     radOpt.bounces = 4;
-    radOpt.samplesPerPatch = 32;
-    radOpt.blockSize = 2;
-    radOpt.albedoMin = 0.15;                       // zum Testen heller (vorher 0.05)
-    radOpt.albedoMax = 0.85;
-    radOpt.textureEmissionStrength = 0;            // WICHTIG, siehe unten
-    radOpt.ambientFloor = lmOpt.kAmbientFloor;     // = 20, gleicher Wert wie beim direkten Licht
-    radOpt.indirectGain = 4.0;                     // zum Testen, spaeter runter
-    radOpt.indirectGain = 20.0;
+    radOpt.samplesPerPatch = 8;     // Draft: 8, Preview: 16
+    radOpt.blockSize = 4;            // Draft: 4, Preview: 2
+    radOpt.albedoMin = 0.12;
+    radOpt.albedoMax = 0.75;
+    radOpt.textureEmissionStrength = 0;
+    radOpt.ambientFloor = 0;         // Floor nur einmal setzen (lmOpt.kAmbientFloor)
+    radOpt.indirectGain = 1.0;       // nur erhoehen, wenn die Energiebilanz geprueft ist
 
-    po.threads = 0;        // 0 = alle logischen Kerne (hardware_concurrency), sonst feste Zahl
-    po.verbose = true;
+    po.threads = 0;                  // 0 = alle logischen Kerne
+    po.verbose = false;              // true beim Tuning
     po.skipVoidLeaves = true;
     po.requirePolygonsInComponent = true;
-    po.minPortalArea = 64;
+    po.minPortalArea = 256;          // Test bis 1024
 
-
-
-
-    vo.minPlaneArea = 4096.0f;          // hier stellst du die Groebe ein
-
+    vo.minPlaneArea = 2048.0f;       // 1024 detailreich, 4096+ grosse offene Raeume
 
 }
 
@@ -464,8 +431,7 @@ int main(int argc, char** argv) {
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
-
-        
+               
         
         {
             float x = ImGui::GetIO().DisplaySize.x + 20;
@@ -528,6 +494,8 @@ int main(int argc, char** argv) {
                 if (ImGui::MenuItem("Resourcemanager", 0, &temp)) m_resource_window_visible = !m_resource_window_visible;
                 temp = m_pick_vfs_file;
                 if (ImGui::MenuItem("Virtual Filesystem Browser", 0, &temp)) m_pick_vfs_file = true;
+                temp = m_show_quick_info;
+                if (ImGui::MenuItem("Show Quickinfo", 0, &temp)) m_show_quick_info = !m_show_quick_info;
 
                 ImGui::EndMenu();
             }

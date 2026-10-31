@@ -8,16 +8,17 @@
 //   2. BuildLightmapAtlas()  - packt "polygons" (opake Struktur-Geometrie),
 //                              rendert direktes Licht (Occlusion ueber
 //                              den bestehenden BSPTree), schreibt die
-//                              finalen Atlas-UVs in poly.verts[i].fxtexture()
+//                              finalen Atlas-UVs in poly.verts[i].fxtexture().
+//                              Optional: "extraPolys" fuer die Atlasgroessen-
+//                              schaetzung mitgeben (sonst ist der Atlas
+//                              oft zu klein fuer die Extras).
 //   3. BakeExtraPolygonLightmaps() - packt "extraPolys" (Wasser, Glas, ...)
 //                              in DENSELBEN Atlas. Diese Flaechen werden
-//                              selbst beleuchtet, blockieren aber KEIN
+//                              BEIDSEITIG beleuchtet, blockieren aber KEIN
 //                              Licht (Occlusion laeuft weiterhin nur
 //                              gegen den opaken BSPTree).
-//   4. BakeRadiosity()       - indirektes Licht (Bounces) auf Basis der
-//                              bereits direkt beleuchteten opaken Polygone.
-//                              Baut sich intern einen eigenen, kleinen
-//                              BSPTree fuer die Patch-Occlusion.
+//   4. BakeRadiosity()       - indirektes Licht (Bounces), siehe
+//                              LightmapRadiosity.h. Optional auch fuer Extras.
 //
 // Reihenfolge in der Anwendung: BuildLightmapAtlas() -> optional
 // BakeExtraPolygonLightmaps() -> optional BakeRadiosity().
@@ -26,6 +27,9 @@
 #include "BSP.h"
 #include "LightMapAtlas.h"
 #include <vector>
+#include <array>
+#include <memory>
+#include <cstdint>
 #include <unordered_map>
 #include <random>
 #include <cmath>
@@ -53,7 +57,7 @@ namespace ng::lightning
 
     struct LightmapOptions
     {
-		bool   buildDirectLight = true;   // nur im commpiler thread wichtig
+        bool   buildDirectLight = true;   // nur im Compiler-Thread wichtig
         int    startAtlasSize = 512;
         int    maxAtlasSize = 4096;
         double texelDensity = 16.0;   // Weltunits pro Lightmap-Texel
@@ -63,7 +67,7 @@ namespace ng::lightning
         int    kAmbientFloor = 0;      // Sockel-Helligkeit (0..255) ohne jedes Licht
         bool   onlyCoveredTexels = false;  // true = nur Polygonflaeche (+ Rand) fuellen
         double coverageMargin = 1.0;    // Rand in Texeln fuer die bilineare Filterung
-
+        double gain = 1;
     };
 
     // ------------------------------------------------------------
@@ -80,7 +84,6 @@ namespace ng::lightning
         Vec3<T> origin;                     // Weltpunkt bei (bboxMinU, bboxMinV)
         T extentU = T(0), extentV = T(0);   // BBox-Breite/Hoehe in Weltunits
     };
-
 
     // Polygon im Texelraum des Lightmap-Rechtecks
     template<class T>
@@ -146,8 +149,6 @@ namespace ng::lightning
         return std::sqrt(best);
     }
 
-
-
     template<class T>
     PolygonUVBasis<T> ComputePolygonUVBasis(const ng::bsp::BSPPolygon<T>& poly)
     {
@@ -200,17 +201,8 @@ namespace ng::lightning
     }
 
     // ------------------------------------------------------------
-    // RayIntersectsPolygon
-    //
-    // Ray-Test gegen ein konvexes, planares Polygon (trifft bei euch
-    // immer zu, da alle BSPPolygon aus BSP-Splits konvex sind).
-    // ------------------------------------------------------------
-   
-   
-    // ------------------------------------------------------------
     // LightFalloff - weicher Abfall, keine harte Kante am Radius.
     // ------------------------------------------------------------
-    
     template<class T>
     inline T LightFalloff(T distance, T radius)
     {
@@ -220,15 +212,7 @@ namespace ng::lightning
         const T edge = T(1) - t * t * (T(3) - T(2) * t);
         return exponential * edge;
     }
-    /*
-    template<class T>
-    inline T LightFalloff(T distance, T radius)
-    {
-        if (distance >= radius) return T(0);
-        const T t = distance / radius;
-        return T(1) - t * t * (T(3) - T(2) * t);   // nur Smoothstep
-    }
-    */
+
     // ------------------------------------------------------------
     // ProcessPoly
     //
@@ -237,67 +221,16 @@ namespace ng::lightning
     // weise der bereits vorhandene, feine Struktur-Baum der Karte.
     // Extra-Polygone (Wasser/Glas) werden hier NIE als "occluderTree"
     // uebergeben - sie blockieren kein Licht.
+    //
+    // twoSided = true: das Polygon wird von beiden Seiten beleuchtet
+    // (Glas, Wasser). Die Normale wird dann pro Licht zur Lichtseite
+    // gedreht.
     // ------------------------------------------------------------
-    
-    
-    
-    /*
-    template<class T>
-    void ProcessPoly(LightMapAtlas& atlas, ng::bsp::BSPPolygon<T>& poly,
-        const ng::bsp::BSPTree<T>& occluderTree,
-        const std::vector<LightSource<T>>& lights, T eps)
-    {
-        auto& buf = atlas.Buffer();
-
-        for (const auto& light : lights)
-        {
-            if (poly.plane.distance(light.pos) < T(0)) continue;
-
-            for (int iy = 0; iy < poly.lmHeight; ++iy)
-            {
-                for (int ix = 0; ix < poly.lmWidth; ++ix)
-                {
-                    const T ufactor = T(ix) / T(poly.lmWidth);
-                    const T vfactor = T(iy) / T(poly.lmHeight);
-
-                    const Vec3<T> lumel = poly.lmOrigin + poly.lmEdgeU * ufactor + poly.lmEdgeV * vfactor;
-
-                    const Vec3<T> toLight = light.pos - lumel;
-                    const T dist = toLight.length();
-                    if (dist > light.radius || dist < eps) continue;
-
-                    const Vec3<T> dir = toLight * (T(1) / dist);
-
-                    if (BSPRayOccluded(occluderTree, lumel, dir, dist - eps, eps, &poly))
-                        continue;
-
-                    const T falloff = LightFalloff(dist, light.radius);
-                    if (falloff <= T(0)) continue;
-
-                    const T intensity = light.intensity * falloff;
-
-                    const int xx = poly.lmPosX + ix;
-                    const int yy = poly.lmPosY + iy;
-
-                    const uint32_t existing = buf.GetPixel(xx, yy);
-                    const uint32_t er = RGBToRed(existing), eg = RGBToGreen(existing), eb = RGBToBlue(existing);
-
-                    const uint32_t rr = std::min(255u, er + (uint32_t)(intensity * light.color(0)));
-                    const uint32_t gg = std::min(255u, eg + (uint32_t)(intensity * light.color(1)));
-                    const uint32_t bb = std::min(255u, eb + (uint32_t)(intensity * light.color(2)));
-
-                    buf.PutPixel(xx, yy, RGB(rr, gg, bb));
-                }
-            }
-        }
-    }
-    */
-
     template<class T>
     void ProcessPoly(LightMapAtlas& atlas, ng::bsp::BSPPolygon<T>& poly,
         const ng::bsp::BSPTree<T>& occluderTree,
         const std::vector<LightSource<T>>& lights, T eps,
-        const LightmapOptions& opt)
+        const LightmapOptions& opt, bool twoSided = false)
     {
         auto& buf = atlas.Buffer();
         const int W = poly.lmWidth, H = poly.lmHeight;
@@ -330,7 +263,11 @@ namespace ng::lightning
 
         for (const auto& light : lights)
         {
-            if (poly.plane.distance(light.pos) < T(0)) continue;
+            // Lichtseite bestimmen. Einseitig: Licht hinter der Flaeche -> ignorieren.
+            // Zweiseitig: Normale zur Lichtseite drehen.
+            const T side = (poly.plane.distance(light.pos) >= T(0)) ? T(1) : T(-1);
+            if (side < T(0) && !twoSided) continue;
+            const Vec3<T> n = poly.plane.normal() * side;
 
             for (int iy = 0; iy < H; ++iy)
             {
@@ -345,7 +282,7 @@ namespace ng::lightning
 
                     const Vec3<T> dir = toLight * (T(1) / dist);
 
-                    const T ndotl = poly.plane.normal() ^ dir;
+                    const T ndotl = n ^ dir;
                     if (ndotl <= T(0)) continue;
 
                     if (BSPRayOccluded(occluderTree, lumel, dir, dist - eps, eps, &poly))
@@ -354,7 +291,7 @@ namespace ng::lightning
                     const T falloff = LightFalloff(dist, light.radius);
                     if (falloff <= T(0)) continue;
 
-                    const T intensity = light.intensity * falloff * ndotl;
+                    const T intensity = light.intensity * falloff * ndotl * (T)opt.gain;
 
                     const int xx = poly.lmPosX + ix;
                     const int yy = poly.lmPosY + iy;
@@ -371,6 +308,7 @@ namespace ng::lightning
             }
         }
     }
+
     // ------------------------------------------------------------
     // WriteLightmapUVs
     //
@@ -480,15 +418,22 @@ namespace ng::lightning
     // Licht. "occluderTree" ist der bereits vorhandene BSPTree derselben
     // Geometrie (z.B. euer m_bsp) - wird NUR fuer Occlusion-Tests
     // gebraucht, nicht veraendert.
+    //
+    // "extraPolys" (optional) wird hier NICHT gebacken, sondern nur fuer
+    // die Atlasgroessen-Schaetzung beruecksichtigt, damit spaeter in
+    // BakeExtraPolygonLightmaps() noch Platz ist.
     // ------------------------------------------------------------
     template<class T>
     std::unique_ptr<LightMapAtlas> BuildLightmapAtlas(
         std::vector<ng::bsp::BSPPolygon<T>>& polygons,
         const ng::bsp::BSPTree<T>& occluderTree,
         const std::vector<LightSource<T>>& lights,
-        const LightmapOptions& opt = LightmapOptions())
+        const LightmapOptions& opt = LightmapOptions(),
+        const std::vector<ng::bsp::BSPPolygon<T>>* extraPolys = nullptr)
     {
-        int size = std::max(opt.startAtlasSize, EstimateAtlasSize(polygons, opt));
+        int size = std::max(opt.startAtlasSize,
+            extraPolys ? EstimateAtlasSize(polygons, *extraPolys, opt)
+            : EstimateAtlasSize(polygons, opt));
 
         while (size <= opt.maxAtlasSize)
         {
@@ -539,7 +484,7 @@ namespace ng::lightning
                 auto& poly = polygons[i];
                 if (poly.verts.size() < 3) continue;
 
-                ProcessPoly(*atlas, poly, occluderTree, lights, (T)opt.epsilon, opt);
+                ProcessPoly(*atlas, poly, occluderTree, lights, (T)opt.epsilon, opt, false);
                 WriteLightmapUVs(poly, bases[i], atlas->Width(), atlas->Height());
             }
 
@@ -557,7 +502,7 @@ namespace ng::lightning
     // Packt "extraPolys" (Wasser, Glas, ...) IN DENSELBEN Atlas.
     // Occlusion laeuft weiterhin nur gegen "occluderTree" (opake
     // Struktur) - Extra-Polygone blockieren kein Licht und werfen
-    // keine Schatten.
+    // keine Schatten. Beleuchtung ist beidseitig.
     // ------------------------------------------------------------
     template<class T>
     bool BakeExtraPolygonLightmaps(
@@ -600,79 +545,51 @@ namespace ng::lightning
                 for (int x = 0; x < poly.lmWidth; ++x)
                     atlas.Buffer().PutPixel(poly.lmPosX + x, poly.lmPosY + y, floorColor);
 
-            ProcessPoly(atlas, poly, occluderTree, lights, (T)opt.epsilon,opt);
+            ProcessPoly(atlas, poly, occluderTree, lights, (T)opt.epsilon, opt, true);
             WriteLightmapUVs(poly, basis, atlas.Width(), atlas.Height());
         }
 
         if (!allPacked)
             printf("[Lightmap] Atlas zu klein: %zu Extra-Polygone ohne Lightmap. "
-                "EstimateAtlasSize(polys, extraPolys, opt) vor BuildLightmapAtlas() nutzen.\n", skipped);
+                "BuildLightmapAtlas(..., &extraPolys) benutzen bzw. packEfficiency senken.\n", skipped);
 
         return allPacked;
     }
 
-    // ================================================================
-    // Radiosity (indirektes Licht / Bounces)
+    // ------------------------------------------------------------
+    // BlurLightmap
     //
-    // Patch-basiert, EIN Patch pro opakem Polygon. Occlusion/Nearest-Hit
-    // laeuft ueber einen INTERN gebauten, kleinen BSPTree, dessen
-    // Polygone per objectId auf den Patch-Index zurueckverweisen
-    // (BSPPolygon::objectId wird dafuer zweckentfremdet - siehe
-    // BuildRadiosityOcclusionTree()).
-    // ================================================================
-
-   
- 
-        // ------------------------------------------------------------
-        // BlurLightmap
-        //
-        // Blurt GENAU EINE Lightmap eines Polygons.
-        //
-        // Wichtig:
-        //   Es wird ausschließlich innerhalb des Lightmap-Rechtecks
-        //   des Polygons gelesen und geschrieben. Dadurch kann eine
-        //   Lightmap niemals in eine benachbarte Lightmap im Atlas
-        //   hineinbluten.
-        //
-        // 3x3 Gauß-Filter:
-        //
-        //   1 2 1
-        //   2 4 2   / 16
-        //   1 2 1
-        //
-        // Durch zwei getrennte Durchläufe (horizontal/vertikal)
-        // wesentlich günstiger als ein kompletter 2D-Filter.
-        // ------------------------------------------------------------
-        inline void BlurLightmap(
-            LightMapAtlas& atlas,
-            int posX,
-            int posY,
-            int width,
-            int height)
+    // Blurt GENAU EINE Lightmap eines Polygons. Es wird ausschliesslich
+    // innerhalb des Lightmap-Rechtecks des Polygons gelesen und
+    // geschrieben, es kann also nichts in benachbarte Lightmaps im
+    // Atlas hineinbluten.
+    //
+    // 3x3 Gauss-Filter (separiert: horizontal, dann vertikal):
+    //   1 2 1
+    //   2 4 2   / 16
+    //   1 2 1
+    // ------------------------------------------------------------
+    inline void BlurLightmap(
+        LightMapAtlas& atlas,
+        int posX,
+        int posY,
+        int width,
+        int height)
     {
         if (width <= 1 || height <= 1)
             return;
 
         auto& buf = atlas.Buffer();
 
-        const size_t count = static_cast<size_t>(width) *
-            static_cast<size_t>(height);
-
-        // Zwischenpuffer.
+        const size_t count = static_cast<size_t>(width) * static_cast<size_t>(height);
         std::vector<uint32_t> temp(count);
 
         auto index = [width](int x, int y) -> size_t
             {
-                return static_cast<size_t>(y) *
-                    static_cast<size_t>(width) +
-                    static_cast<size_t>(x);
+                return static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
             };
 
-        // --------------------------------------------------------
-        // Horizontaler Durchlauf
-        // Gewichtung: 1 2 1 / 4
-        // --------------------------------------------------------
-
+        // Horizontaler Durchlauf (1 2 1 / 4)
         for (int y = 0; y < height; ++y)
         {
             for (int x = 0; x < width; ++x)
@@ -681,44 +598,19 @@ namespace ng::lightning
                 const int x1 = x;
                 const int x2 = std::min(width - 1, x + 1);
 
-                const uint32_t c0 =
-                    buf.GetPixel(posX + x0, posY + y);
+                const uint32_t c0 = buf.GetPixel(posX + x0, posY + y);
+                const uint32_t c1 = buf.GetPixel(posX + x1, posY + y);
+                const uint32_t c2 = buf.GetPixel(posX + x2, posY + y);
 
-                const uint32_t c1 =
-                    buf.GetPixel(posX + x1, posY + y);
+                const int r = (int)RGBToRed(c0) + 2 * (int)RGBToRed(c1) + (int)RGBToRed(c2);
+                const int g = (int)RGBToGreen(c0) + 2 * (int)RGBToGreen(c1) + (int)RGBToGreen(c2);
+                const int b = (int)RGBToBlue(c0) + 2 * (int)RGBToBlue(c1) + (int)RGBToBlue(c2);
 
-                const uint32_t c2 =
-                    buf.GetPixel(posX + x2, posY + y);
-
-                const int r =
-                    (int)RGBToRed(c0) +
-                    2 * (int)RGBToRed(c1) +
-                    (int)RGBToRed(c2);
-
-                const int g =
-                    (int)RGBToGreen(c0) +
-                    2 * (int)RGBToGreen(c1) +
-                    (int)RGBToGreen(c2);
-
-                const int b =
-                    (int)RGBToBlue(c0) +
-                    2 * (int)RGBToBlue(c1) +
-                    (int)RGBToBlue(c2);
-
-                temp[index(x, y)] =
-                    RGB(
-                        (uint32_t)(r / 4),
-                        (uint32_t)(g / 4),
-                        (uint32_t)(b / 4)
-                    );
+                temp[index(x, y)] = RGB((uint32_t)(r / 4), (uint32_t)(g / 4), (uint32_t)(b / 4));
             }
         }
 
-        // --------------------------------------------------------
-        // Vertikaler Durchlauf
-        // Gewichtung: 1 2 1 / 4
-        // --------------------------------------------------------
-
+        // Vertikaler Durchlauf (1 2 1 / 4)
         for (int y = 0; y < height; ++y)
         {
             const int y0 = std::max(0, y - 1);
@@ -731,45 +623,21 @@ namespace ng::lightning
                 const uint32_t c1 = temp[index(x, y1)];
                 const uint32_t c2 = temp[index(x, y2)];
 
-                const int r =
-                    (int)RGBToRed(c0) +
-                    2 * (int)RGBToRed(c1) +
-                    (int)RGBToRed(c2);
+                const int r = (int)RGBToRed(c0) + 2 * (int)RGBToRed(c1) + (int)RGBToRed(c2);
+                const int g = (int)RGBToGreen(c0) + 2 * (int)RGBToGreen(c1) + (int)RGBToGreen(c2);
+                const int b = (int)RGBToBlue(c0) + 2 * (int)RGBToBlue(c1) + (int)RGBToBlue(c2);
 
-                const int g =
-                    (int)RGBToGreen(c0) +
-                    2 * (int)RGBToGreen(c1) +
-                    (int)RGBToGreen(c2);
-
-                const int b =
-                    (int)RGBToBlue(c0) +
-                    2 * (int)RGBToBlue(c1) +
-                    (int)RGBToBlue(c2);
-
-                buf.PutPixel(
-                    posX + x,
-                    posY + y,
-                    RGB(
-                        (uint32_t)(r / 4),
-                        (uint32_t)(g / 4),
-                        (uint32_t)(b / 4)
-                    )
-                );
+                buf.PutPixel(posX + x, posY + y,
+                    RGB((uint32_t)(r / 4), (uint32_t)(g / 4), (uint32_t)(b / 4)));
             }
         }
     }
 
-
     // ------------------------------------------------------------
     // BlurAllLightmaps
     //
-    // Blurt jede einzelne Lightmap aller Polygone.
-    //
-    // Jede Lightmap wird separat behandelt. Die Positionen der
-    // Polygone im Atlas spielen dabei keine Rolle.
-    //
-    // Optional kann passes > 1 verwendet werden, um stärker zu
-    // glätten.
+    // Blurt jede einzelne Lightmap aller Polygone separat.
+    // Optional kann passes > 1 verwendet werden, um staerker zu glaetten.
     // ------------------------------------------------------------
     template<class T>
     void BlurAllLightmaps(
@@ -789,17 +657,7 @@ namespace ng::lightning
                 continue;
 
             for (int i = 0; i < passes; ++i)
-            {
-                BlurLightmap(
-                    atlas,
-                    poly.lmPosX,
-                    poly.lmPosY,
-                    poly.lmWidth,
-                    poly.lmHeight
-                );
-            }
+                BlurLightmap(atlas, poly.lmPosX, poly.lmPosY, poly.lmWidth, poly.lmHeight);
         }
     }
-    
-
 }

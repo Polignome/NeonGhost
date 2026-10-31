@@ -13,6 +13,7 @@
 #include "RenderTargetView.h"
 #include <LightGun.h>
 #include <DynamicLight.h>
+#include "ViewMotionController.h"
 
 static ng::renderer::buffers::PixelBufferRGBA m_bixelbuffer(800, 600);
 static ng::renderer::rasterizer::Rasterizer3D<NG_MATH_FLOAT> m_rasterizer_3d(800, 600);
@@ -42,7 +43,7 @@ static bool m_use_after_fx = false;
 static bool m_use_tile_base_rendering = true;
 static bool m_use_collision = false;
 static bool m_use_lightmap = true;
-
+static bool m_show_quick_info = true;
 
 
 static size_t m_num_visible_leafs = 0;
@@ -1354,7 +1355,7 @@ inline void SomeDebugStuff() {
             brightness = m_lmCorr.brightness;
 
         }
-
+        if (!m_show_quick_info) return;
         int width = 400;
         float green = 1;
         ImVec2 start = ImGui::GetCursorScreenPos();
@@ -1527,6 +1528,7 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     static ImVec2 m_mouse_pos_old;
     static ImVec2 m_mouse_steps;
     static ng::controller::CameraController<NG_MATH_FLOAT> cam_controller;
+    static ng::controller::ViewMotion<NG_MATH_FLOAT> view_motion;
     m_mouse_pos = ImGui::GetMousePos();
     static bool e_up = false;
     m_mouse_steps.x = m_mouse_pos.x - m_mouse_pos_old.x;
@@ -1546,6 +1548,9 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
     float dt = std::chrono::duration<float>(now - lastTime).count();
     dt = std::min(dt, 0.05f); // Cap gegen Spiral-of-Death bei Lags
     lastTime = now;
+
+    // NEU: Versatz des letzten Frames entfernen, damit Noclip/Init mit der echten Augenposition arbeiten
+    m_camera.SetPosition(m_camera.position() - view_motion.Offset());
 
 
     if (ImGui::IsWindowFocused()) {
@@ -1591,6 +1596,7 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
 
             if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
                 cam_controller.Turn(m_camera, m_mouse_steps.y * speed2, m_mouse_steps.x * speed2);
+                view_motion.AddTurn(m_mouse_steps.x * speed2);                 // NEU
             }
 
 
@@ -1682,6 +1688,9 @@ inline void UpdateRenderMovement(bool reset_mouse = false) {
         m_player.InitFromEye(m_camera.position(), 28.0f);
         // kein Teleported-Block und kein yawPitch-Lambda mehr noetig
     }
+
+    view_motion.Update(dt, m_player, m_camera);
+    view_motion.Apply(m_camera, cam_controller);
 
     for (auto& m : m_mesh_obj) {
         m.Update(dt);
@@ -1960,6 +1969,13 @@ inline void DrawLightingVisSetup(
             &lightmap.packEfficiency,
             0.01,
             0.05,
+            "%.3f");
+        
+        ImGui::InputDouble(
+            "Gain",
+            &lightmap.gain,
+            1,
+            200,
             "%.3f");
 
         ImGui::InputInt(

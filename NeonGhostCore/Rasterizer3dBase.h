@@ -272,17 +272,15 @@ namespace ng::renderer::rasterizer
         RASTER_DEPTH_WRITE = 1u << 5,
         RASTER_WRITE_NORMAL = 1u << 6,
         RASTER_WRITE_INDEX = 1u << 7,
-       // RASTER_WOBBLE = 1 << 1u << 8 // Nur beim spanrenderer
-//        RASTER_DEPTH_CLEAR = 1 << 1u << 8,
-        RASTER_DEPTH_CLEAR =  1u << 8,
+         RASTER_DEPTH_CLEAR =  1u << 8,
         RASTER_WARP = 1u << 9,
         RASTER_WARP_SCREEN = 1u << 10
     };
 
     struct LightmapCorrection
     {
-        float gamma = 1.0f;   // 1.0 = aus, 1.6 bis 2.2 = heller
-        float brightness = 1.0f;   // linearer Faktor, 1.0 = aus, 2.0 = Overbright
+        float gamma = 2.2f;   // 1.0 = aus, 1.6 bis 2.2 = heller
+        float brightness = 1.3f;   // linearer Faktor, 1.0 = aus, 2.0 = Overbright
 
         uint8_t  lut[256];         // Gamma-Tabelle
         uint32_t scale = 0;        // Brightness als Festkomma (siehe Shader)
@@ -452,7 +450,11 @@ namespace ng::renderer::rasterizer
             uint32_t base = ColorTexture(f, st);
             if (!st.lightmapTex) return base;
 
+            //uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
+
+            if (!st.lightmapTex || !st.lightmapTex->texture) return base;
             uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
+            //uint32_t lm = st.lightmapTex->SampleLightmapBilinear(f.fxu, f.fxv);
 
             uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
             uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;

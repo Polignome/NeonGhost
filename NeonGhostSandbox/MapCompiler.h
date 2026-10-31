@@ -186,7 +186,7 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
         ng::bsp::SmoothNormals(polys);
 
-
+        
         scene.m_bsp.Build(polys);
         scene.m_bsp.FixTJunctions();
         scene.m_bsp.InsertExtraPolygons(extra_polys);

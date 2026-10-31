@@ -111,6 +111,7 @@ namespace ng {
                 // ---------- Wippen ----------
                 const T targetAmp = onGround ? speedN * scale : (T)0;
                 m_amp += (targetAmp - m_amp) * ((T)1 - std::exp(-cfg.ampResponse * dt));
+                m_amp = std::min(m_amp, scale * (T)1.2);     // Ausblenden nahe Portalen sofort, nicht verzoegert
 
                 if (onGround)
                 {
