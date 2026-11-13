@@ -6908,7 +6908,7 @@
 // entity 18
 {
 "classname" "light"
-"_light" "0 170 0 800"
+"_light" "0 170 0 8000"
 "style" "0"
 "_fade" "1.0"
 "_falloff" "0"
@@ -6917,7 +6917,7 @@
 // entity 19
 {
 "classname" "light"
-"_light" "0 170 0 800"
+"_light" "0 170 0 8000"
 "style" "0"
 "_fade" "1.0"
 "_falloff" "0"
@@ -8671,4 +8671,130 @@
 "_fade" "1.0"
 "_falloff" "0"
 "origin" "-3444 -576 780"
+}
+// entity 201
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "310 4 -166"
+}
+// entity 202
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "54 4 -166"
+}
+// entity 203
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-122 4 -166"
+}
+// entity 204
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-234 4 -166"
+}
+// entity 205
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-234 68 -166"
+}
+// entity 206
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-122 68 -166"
+}
+// entity 207
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "54 68 -166"
+}
+// entity 208
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "182 68 -166"
+}
+// entity 209
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "310 68 -166"
+}
+// entity 210
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-250 -60 -166"
+}
+// entity 211
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "-138 -60 -166"
+}
+// entity 212
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "38 -60 -166"
+}
+// entity 213
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "166 -60 -166"
+}
+// entity 214
+{
+"classname" "light"
+"_light" "0 170 0 8000"
+"style" "0"
+"_fade" "1.0"
+"_falloff" "0"
+"origin" "294 -60 -166"
 }

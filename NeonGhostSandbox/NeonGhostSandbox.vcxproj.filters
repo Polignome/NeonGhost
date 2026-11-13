@@ -51,6 +51,9 @@
     <ClCompile Include="RenderTargetView.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="ConsoleFramebuffer.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GuiStyle.h">
@@ -99,6 +102,12 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="MapCompiler.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="ConsoleFramebuffer.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="console_logo.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

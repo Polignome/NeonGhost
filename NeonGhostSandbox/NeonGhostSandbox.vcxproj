@@ -144,6 +144,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ConsoleFramebuffer.cpp" />
     <ClCompile Include="Font2.cpp" />
     <ClCompile Include="imgui.cpp" />
     <ClCompile Include="ImGuiTools.cpp" />
@@ -158,6 +159,8 @@
     <ClCompile Include="RenderTargetView.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ConsoleFramebuffer.h" />
+    <ClInclude Include="console_logo.h" />
     <ClInclude Include="Font2.h" />
     <ClInclude Include="GuiStyle.h" />
     <ClInclude Include="imconfig.h" />

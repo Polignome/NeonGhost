@@ -26,6 +26,8 @@
 #include "MapCompiler.h"
 #include <DynamicLight.h>
 #include <LightGun.h>
+#include "ConsoleFramebuffer.h"
+#include "console_logo.h"
 #pragma comment(lib, "SDL2.lib")
 #pragma comment(lib, "SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -361,8 +363,24 @@ int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
     static bool m_load_obj = false;
     static bool m_load_hlm = false;
-    
-    
+    //ConsoleFramebuffer fb(160, 100);
+    ConsoleFramebuffer fb(124, 200);
+
+
+
+    fb.Clear();
+    ng::console_bitmap::Draw(fb);
+
+
+    fb.Present();
+
+
+
+
+
+
+
+
     if (InitImGui()) return 1;
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGuiStyle& style = ImGui::GetStyle();
