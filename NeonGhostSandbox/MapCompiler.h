@@ -256,3 +256,195 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         sscen = std::move(scene);
     }
 }
+
+
+
+
+
+
+#include <string>
+#include <exception>
+#include <functional>
+template<class T>
+class MapCompiler
+{
+public:
+
+    using Scene = BspScene<T>;
+
+    enum class State
+    {
+        IDLE,
+        RUNNING,
+        FINISHED,
+        FAILED
+    };
+public:
+
+    using OnFinishedCallback =
+        std::function<void(Scene&)>;
+
+    using OnErrorCallback =
+        std::function<void(std::exception_ptr)>;
+
+private:
+    std::thread m_thread;
+    mutable std::mutex m_mutex;
+    std::unique_ptr<Scene> m_result;
+    std::exception_ptr m_exception;
+    std::atomic<State> m_state{ State::IDLE };
+    OnFinishedCallback m_onFinished;
+    OnErrorCallback m_onError;
+    std::atomic_bool m_busy{ false };
+public:
+    MapCompiler() = default;
+
+    ~MapCompiler()
+    {
+        Wait();
+    }
+
+    bool IsBusy() const
+    {
+        return m_busy.load();
+    }
+/*
+    bool IsRunning() const
+    {
+        return m_state.load() == State::RUNNING;
+    }
+*/
+    MapCompiler(const MapCompiler&) = delete;
+    MapCompiler& operator=(const MapCompiler&) = delete;
+
+    bool Start(
+        const std::string& map_filename,
+        ng::bsp::PVSOptions<T> po,
+        ng::bsp::VisCellOptions<T> vo,
+        ng::lightning::LightmapOptions lmOpt,
+        ng::lightning::RadiosityOptions<T> radOpt,
+        OnFinishedCallback onFinished = nullptr,
+        OnErrorCallback onError = nullptr)
+    {
+        if (m_state == State::RUNNING)
+            return false;
+
+        Wait();
+
+        m_onFinished = std::move(onFinished);
+        m_onError = std::move(onError);
+        
+        m_busy = true;
+        m_state = State::RUNNING;
+        
+        
+        m_thread = std::thread(
+            [this,
+            map_filename,
+            po,
+            vo,
+            lmOpt,
+            radOpt]() mutable
+            {
+                try
+                {
+                    auto scene = std::make_unique<Scene>();
+
+                    Compile(
+                        map_filename,
+                        po,
+                        vo,
+                        lmOpt,
+                        radOpt,
+                        *scene
+                    );
+
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_result = std::move(scene);
+                    }
+
+                    m_state = State::FINISHED;
+
+                    // Callback
+                    if (m_onFinished)
+                        m_onFinished(*m_result);
+                }
+                catch (...)
+                {
+                    auto error = std::current_exception();
+
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_exception = error;
+                    }
+
+                    m_state = State::FAILED;
+
+                    // Error Callback
+                    if (m_onError)
+                        m_onError(error);
+                    
+                }
+                m_busy = false;
+            }
+        );
+
+        return true;
+    }
+
+
+    bool IsRunning() const
+    {
+        return m_state == State::RUNNING;
+    }
+
+    bool IsFinished() const
+    {
+        return m_state == State::FINISHED;
+    }
+
+    bool HasFailed() const
+    {
+        return m_state == State::FAILED;
+    }
+
+    State GetState() const
+    {
+        return m_state.load();
+    }
+
+
+    void Wait()
+    {
+        if (m_thread.joinable())
+            m_thread.join();
+    }
+
+
+    std::unique_ptr<Scene> GetResult()
+    {
+        if (m_state != State::FINISHED)
+            return nullptr;
+
+        Wait();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        return std::move(m_result);
+    }
+
+
+    void RethrowException()
+    {
+        if (m_state != State::FAILED)
+            return;
+
+        Wait();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        if (m_exception)
+            std::rethrow_exception(m_exception);
+    }
+};

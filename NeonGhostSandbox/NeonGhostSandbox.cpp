@@ -46,11 +46,12 @@ const size_t MAX_POLY_COUNTS = 100;
 
 //https://lovable.dev/projects/ab425dac-45f9-4c5c-8222-af5664f071fb
 //https://claude.ai/chat/8116e964-c2d9-40e2-bcfa-ed126458b56d
-
+static bool done = false;
 static ng::tools::FPSCounter m_fps_counter;
 static ng::renderer::gfx::Texture m_bsp_lightmap;
 static ng::renderer::postfx::PostFXManager<NG_MATH_FLOAT> mgr;
 static auto *dynFX = mgr.AddEffect<ng::renderer::postfx::DynamicLightFX<NG_MATH_FLOAT>>();
+static MapCompiler<double> compiler;
 //static auto* water = mgr.AddEffect<ng::renderer::postfx::UnderwaterWarpEffect<NG_MATH_FLOAT>>();
 //static auto* blur = mgr.AddEffect<ng::renderer::postfx::BlurEffect<NG_MATH_FLOAT>>(0.5f, 2);
 
@@ -313,6 +314,17 @@ DistributeObjectsInCube(
     return result;
 }
 
+
+void ExitProgram() {
+	//m_exit_program = true;
+    done = true;
+}
+
+void NoClip() {
+    m_use_collision = !m_use_collision;
+    m_player.SetEnabled(m_use_collision);
+}
+
 void InitStuff() {
 
     m_camera.aspect() = (double)m_rasterizer_3d.Width() / (double)m_rasterizer_3d.Height();
@@ -343,7 +355,7 @@ void InitStuff() {
     radOpt.blockSize = 4;            // Draft: 4, Preview: 2
     radOpt.albedoMin = 0.12;
     radOpt.albedoMax = 0.75;
-    radOpt.textureEmissionStrength = 0;
+    radOpt.textureEmissionStrength = 0.5;
     radOpt.ambientFloor = 0;         // Floor nur einmal setzen (lmOpt.kAmbientFloor)
     radOpt.indirectGain = 1.0;       // nur erhoehen, wenn die Energiebilanz geprueft ist
 
@@ -354,6 +366,22 @@ void InitStuff() {
     po.minPortalArea = 256;          // Test bis 1024
 
     vo.minPlaneArea = 2048.0f;       // 1024 detailreich, 4096+ grosse offene Raeume
+
+
+
+
+   
+
+    m_console_manager.RegisterVariable("m_exit_program", m_exit_program, "Exit the program ", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterVariable("m_view_render_window", m_view_render_window, "Show/Hide Render Window", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterVariable("m_view_render_fullscreen", m_view_render_fullscreen, "View Fulscreen", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterVariable("m_use_collision", m_use_collision, "Use Collision", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterVariable("m_use_lightmap", m_use_lightmap, "Use Lightmap", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterVariable("m_show_quick_info", m_show_quick_info, "Show Quick Info", ng::console::EntryFlags::ARCHIVE);
+    m_console_manager.RegisterFunction("exit", &ExitProgram, "Exit the program");
+    m_console_manager.RegisterFunction("noclip", &NoClip, "Enable/Disable cliping");
+
+    
 
 }
 
@@ -400,10 +428,10 @@ int main(int argc, char** argv) {
     m_rasterizer_3d.SetTiledRenderingEnabled(false);
     m_rasterizer_3d.SetTiledSingleThreadedDebug(false);  // erst so, gegen den alten Pfad vergleichen
     
-
+	m_console_gui.DisablePrintfBypass(); 
     // Main loop
-
-    bool done = false;
+    
+    
     while (!done)
     {
         // Poll and handle events (inputs, window resize, etc.)
@@ -489,17 +517,13 @@ int main(int argc, char** argv) {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 //if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
-                if (ImGui::MenuItem("Load HalfLifeMap")) m_load_hlm = true;
+                if (ImGui::MenuItem("Load HalfLifeMap",0,nullptr,!compiler.IsBusy())) m_load_hlm = true;
                 if (ImGui::MenuItem("Quit")) m_exit_program = true;
                 ImGui::EndMenu();
             }
 
             if (ImGui::BeginMenu("Compiler")) {
-             //   if (ImGui::MenuItem("Lighmaps", 0, m_build_lightmaps)) m_build_lightmaps = !m_build_lightmaps;
-                
-               // if (ImGui::MenuItem("Radiosity", 0, m_build_radiosity)) m_build_radiosity = !m_build_radiosity;
-				//ImGui::Separator();
-				if (ImGui::MenuItem("Compiler Setup")) m_compiler_setting_window = true;
+   			if (ImGui::MenuItem("Compiler Setup")) m_compiler_setting_window = true;
                 ImGui::EndMenu();
             }
 
@@ -568,7 +592,7 @@ int main(int argc, char** argv) {
         }
          
 
-                        
+        m_console_gui.Draw();
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
         if (m_tools_font_window) ng::gui::ShowFontViewer(m_tools_font_window);
@@ -591,10 +615,48 @@ int main(int argc, char** argv) {
             if (!filename.empty()) {
 			
 
-                //m_map_compiler.setCompleteCallback(LoadMapReady);
-                //m_map_compiler.start(filename,po,vo, lmOpt,radOpt );
+               
 
-                Compile(filename, po, vo, lmOpt, radOpt, m_bsp_scene);
+                /*
+                 // Erfolgreich kompiliert
+                compiler.Start(
+                    filename,
+                    po,
+                    vo,
+                    lmOpt,
+                    radOpt,
+
+                    // Erfolgreich kompiliert
+                    [&](BspScene<double>& scene)
+                    {
+                        printf("Map compilation finished!\n");
+                        m_bsp_scene = std::move(scene);
+                        m_player.SetWarpPortals(&m_bsp_scene.m_warpPortals);
+                        ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
+                        m_bsp_scene.m_lightmap.Resize(0, 0);
+                        m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
+
+                        // Hier kannst du weitere Aktionen ausführen.
+                    },
+
+                    // Compiler-Fehler
+                    [&](std::exception_ptr error)
+                    {
+                        try
+                        {
+                            if (error)
+                                std::rethrow_exception(error);
+                        }
+                        catch (const std::exception& e)
+                        {
+                            printf("Compiler Error: %s\n", e.what());
+                        }
+                    }
+                );
+
+                */
+
+                Compile(filename, po, vo, lmOpt, radOpt,m_bsp_scene );
                 m_player.SetWarpPortals(&m_bsp_scene.m_warpPortals);
 
                 ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);

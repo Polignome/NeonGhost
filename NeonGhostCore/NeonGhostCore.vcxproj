@@ -161,6 +161,10 @@
     <ClInclude Include="CameraFrustum.h" />
     <ClInclude Include="Canvas2D.h" />
     <ClInclude Include="Clipping.h" />
+    <ClInclude Include="Console.h" />
+    <ClInclude Include="ConsoleConfig.h" />
+    <ClInclude Include="ConsoleManager.h" />
+    <ClInclude Include="ConsoleTypes.h" />
     <ClInclude Include="CRC.h" />
     <ClInclude Include="CSGTree.h" />
     <ClInclude Include="DynamicLight.h" />

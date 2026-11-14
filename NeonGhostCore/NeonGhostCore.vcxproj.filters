@@ -405,6 +405,18 @@
     <ClInclude Include="ViewMotionController.h">
       <Filter>Headerdateien\Controler</Filter>
     </ClInclude>
+    <ClInclude Include="Console.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="ConsoleConfig.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="ConsoleManager.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="ConsoleTypes.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

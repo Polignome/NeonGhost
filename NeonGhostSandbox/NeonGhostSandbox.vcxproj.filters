@@ -110,5 +110,8 @@
     <ClInclude Include="console_logo.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="ConsoleImGui.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

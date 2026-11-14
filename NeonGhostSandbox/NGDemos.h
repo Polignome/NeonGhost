@@ -14,6 +14,8 @@
 #include <LightGun.h>
 #include <DynamicLight.h>
 #include "ViewMotionController.h"
+#include <Console.h>
+#include "ConsoleImGui.h"   
 
 static ng::renderer::buffers::PixelBufferRGBA m_bixelbuffer(800, 600);
 static ng::renderer::rasterizer::Rasterizer3D<NG_MATH_FLOAT> m_rasterizer_3d(800, 600);
@@ -21,6 +23,10 @@ static ng::renderer::rasterizer::RenderPipeline<NG_MATH_FLOAT> m_render_pipeline
 static ng::renderer::buffers::PixelBufferRGBA m_moc_buffer(800, 600);
 
 static ng::scene::Camera<NG_MATH_FLOAT> m_camera;
+
+static  ng::console::ConsoleManager m_console_manager;
+ng::console::Console m_console(m_console_manager);
+static ng::console::ConsoleImGui m_console_gui(m_console);
 
 static ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 static bool m_exit_program = false;

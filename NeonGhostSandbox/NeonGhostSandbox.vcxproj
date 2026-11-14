@@ -160,6 +160,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConsoleFramebuffer.h" />
+    <ClInclude Include="ConsoleImGui.h" />
     <ClInclude Include="console_logo.h" />
     <ClInclude Include="Font2.h" />
     <ClInclude Include="GuiStyle.h" />
