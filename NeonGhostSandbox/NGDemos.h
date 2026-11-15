@@ -68,7 +68,7 @@ static std::vector< ng::renderer::objects::Mesh<NG_MATH_FLOAT>> m_mesh_obj;
 
 // Member der Anwendung
 static ng::renderer::rasterizer::LightmapCorrection m_lmCorr;
-static BspScene<NG_MATH_FLOAT> m_bsp_scene;
+static ng::io::BspScene<NG_MATH_FLOAT> m_bsp_scene;
 
 static ng::lightning::LightmapOptions lmOpt;
 static ng::lightning::RadiosityOptions<NG_MATH_FLOAT> radOpt;

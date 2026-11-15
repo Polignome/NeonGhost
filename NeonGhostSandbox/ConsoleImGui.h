@@ -1,16 +1,18 @@
 
 #pragma once
 
+#include "Console.h"
+#include "imgui.h"
+#include <algorithm>
+#include <cstdio>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <mutex>
-#include <thread>
-#include <map>
-#include <cctype>
-#include <StdOutputBypass.h>
+
 namespace ng::console
 {
-    class ConsoleImGui : public ng::io::StdOutputBypass
+
+    class ConsoleImGui
     {
     public:
 
@@ -20,93 +22,24 @@ namespace ng::console
             m_input[0] = '\0';
         }
 
-        // ------------------------------------------------------------
-        // Thread-Ausgabe
-        // ------------------------------------------------------------
-
-        struct ThreadOutput
-        {
-            std::string line;
-            bool carriageReturn = false;
-        };
-
-        // ------------------------------------------------------------
-        // Zeichen empfangen
-        // Jeder Thread bekommt einen eigenen Zeilenpuffer.
-        // ------------------------------------------------------------
-
-        void AddCharacter(char c)
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-
-            auto& buffer =
-                m_threadOutput[std::this_thread::get_id()];
-
-            // Wagenrücklauf
-            if (c == '\r')
-            {
-                buffer.carriageReturn = true;
-                return;
-            }
-
-            // Zeilenumbruch
-            if (c == '\n')
-            {
-                m_console.PushOutput(buffer.line);
-
-                buffer.line.clear();
-                buffer.carriageReturn = false;
-
-                m_scrollToBottom = true;
-                return;
-            }
-
-            // Zeile überschreiben
-            if (buffer.carriageReturn)
-            {
-                buffer.line.clear();
-                buffer.carriageReturn = false;
-            }
-
-            // Backspace
-            if (c == '\b')
-            {
-                if (!buffer.line.empty())
-                    buffer.line.pop_back();
-
-                return;
-            }
-
-            // Normale Zeichen und Tabs
-            if (c >= 32 || c == '\t')
-            {
-                buffer.line += c;
-            }
-        }
-
-        // ------------------------------------------------------------
-        // Fenstersteuerung
-        // ------------------------------------------------------------
 
         void SetOpen(bool open)
         {
             m_open = open;
         }
 
+
         bool IsOpen() const
         {
             return m_open;
         }
+
 
         bool* GetOpenPtr()
         {
             return &m_open;
         }
 
-        // ------------------------------------------------------------
-        // ImGui Draw
-        // Einmal pro Frame auf dem Hauptthread aufrufen.
-        // ------------------------------------------------------------
 
         void Draw(const char* title = "NeonGhost Console")
         {
@@ -114,546 +47,521 @@ namespace ng::console
                 return;
 
             ImGui::SetNextWindowSize(
-                ImVec2(680.0f, 420.0f),
+                ImVec2(760.0f, 480.0f),
                 ImGuiCond_FirstUseEver
             );
 
-            if (ImGui::Begin(title, &m_open))
+            if (!ImGui::Begin(title, &m_open))
             {
-                DrawOutput();
-
-                // Completion-Hinweis
-                if (m_showCompletionHint &&
-                    !m_completionMessage.empty())
-                {
-                    ImGui::TextDisabled(
-                        "%s",
-                        m_completionMessage.c_str()
-                    );
-
-                    m_showCompletionHint = false;
-                }
-
-                ImGui::Separator();
-
-                ImGui::SetNextItemWidth(-1.0f);
-
-                const ImGuiInputTextFlags flags =
-                    ImGuiInputTextFlags_EnterReturnsTrue |
-                    ImGuiInputTextFlags_CallbackCompletion |
-                    ImGuiInputTextFlags_CallbackHistory;
-
-                const bool submitted = ImGui::InputText(
-                    "##ConsoleInput",
-                    m_input,
-                    sizeof(m_input),
-                    flags,
-                    InputCallback,
-                    this
-                );
-
-                if (submitted)
-                {
-                    if (m_input[0] != '\0')
-                    {
-                        m_console.Submit(m_input);
-                    }
-
-                    m_input[0] = '\0';
-                    m_historyPosition = -1;
-                    m_scrollToBottom = true;
-
-                    ImGui::SetKeyboardFocusHere(-1);
-                }
+                ImGui::End();
+                return;
             }
+
+            // Vorschläge aktualisieren.
+            UpdateCompletionCandidates();
+
+            // Platz für das Dropdown reservieren.
+            const float dropdownHeight =
+                GetCompletionDropdownHeight();
+
+            // Ausgabe mit entsprechend reduzierter Höhe zeichnen.
+            DrawOutput(dropdownHeight);
+
+            ImGui::Separator();
+
+            ImGui::SetNextItemWidth(-1.0f);
+
+            if (m_focusInputNextFrame)
+            {
+                ImGui::SetKeyboardFocusHere();
+                m_focusInputNextFrame = false;
+            }
+
+            const ImGuiInputTextFlags flags =
+                ImGuiInputTextFlags_EnterReturnsTrue |
+                ImGuiInputTextFlags_CallbackCompletion |
+                ImGuiInputTextFlags_CallbackHistory;
+
+            const bool submitted = ImGui::InputText(
+                "##ConsoleInput",
+                m_input,
+                sizeof(m_input),
+                flags,
+                InputCallback,
+                this
+            );
+
+            if (submitted)
+            {
+                if (m_input[0] != '\0')
+                {
+                    m_console.Submit(m_input);
+                    m_scrollToBottom = true;
+                }
+
+                m_input[0] = '\0';
+                m_historyPosition = -1;
+                m_completionCandidates.clear();
+
+                ImGui::SetKeyboardFocusHere(-1);
+            }
+
+            // Dropdown direkt unter dem Eingabefeld.
+            DrawCompletionDropdown();
 
             ImGui::End();
         }
 
-    protected:
-
-        // ------------------------------------------------------------
-        // StdOutputBypass Callbacks
-        // ------------------------------------------------------------
-
-        int onCoutOverflow(char c) override
-        {
-            AddCharacter(c);
-            return 0;
-        }
-
-        int onCerrOverflow(char c) override
-        {
-            AddCharacter(c);
-            return 0;
-        }
-
-        int onClogOverflow(char c) override
-        {
-            AddCharacter(c);
-            return 0;
-        }
-
-        int onPrintfOverflow(char c) override
-        {
-            AddCharacter(c);
-            return 0;
-        }
 
     private:
-
-        // ------------------------------------------------------------
-        // Daten
-        // ------------------------------------------------------------
-
-        Console& m_console;
-
-        std::mutex m_mutex;
-
-        // Separater Puffer pro Thread
-        std::map<std::thread::id, ThreadOutput> m_threadOutput;
-
-        bool m_open = true;
-        bool m_scrollToBottom = true;
-
-        bool m_showCompletionHint = false;
-
-        int m_historyPosition = -1;
-
-        char m_input[512]{};
-
-        std::string m_completionMessage;
 
         // ------------------------------------------------------------
         // Farben
         // ------------------------------------------------------------
 
         static constexpr ImVec4 COLOR_COMMAND =
-            ImVec4(0.40f, 0.71f, 1.00f, 1.00f);
+            ImVec4(0.35f, 0.75f, 1.00f, 1.0f);
 
-        static constexpr ImVec4 COLOR_PARAMETER =
-            ImVec4(0.90f, 0.72f, 0.42f, 1.00f);
+        static constexpr ImVec4 COLOR_FUNCTION =
+            ImVec4(1.00f, 0.72f, 0.30f, 1.0f);
 
         static constexpr ImVec4 COLOR_VARIABLE =
-            ImVec4(0.46f, 0.84f, 0.63f, 1.00f);
+            ImVec4(0.45f, 0.85f, 0.55f, 1.0f);
 
         static constexpr ImVec4 COLOR_VALUE =
-            ImVec4(0.92f, 0.92f, 0.92f, 1.00f);
+            ImVec4(0.90f, 0.90f, 0.90f, 1.0f);
 
         static constexpr ImVec4 COLOR_DESCRIPTION =
-            ImVec4(0.55f, 0.59f, 0.65f, 1.00f);
+            ImVec4(0.60f, 0.65f, 0.72f, 1.0f);
 
         static constexpr ImVec4 COLOR_ERROR =
-            ImVec4(1.00f, 0.35f, 0.35f, 1.00f);
+            ImVec4(1.00f, 0.35f, 0.35f, 1.0f);
 
-        static constexpr ImVec4 COLOR_NORMAL =
-            ImVec4(0.80f, 0.82f, 0.85f, 1.00f);
 
         // ------------------------------------------------------------
-        // Farbiger Text
+        // Hilfsfunktionen
         // ------------------------------------------------------------
 
-        static void TextColored(
-            const ImVec4& color,
-            const std::string& text)
+        static std::string Trim(const std::string& value)
         {
-            ImGui::TextColored(
-                color,
-                "%s",
-                text.c_str()
-            );
-        }
-
-        // ------------------------------------------------------------
-        // Ausgabe einer Befehlszeile
-        // ------------------------------------------------------------
-
-        void DrawCommandLine(const std::string& line)
-        {
-            if (line.size() < 3)
-            {
-                TextColored(COLOR_NORMAL, line);
-                return;
-            }
-
-            ImGui::TextColored(
-                COLOR_DESCRIPTION,
-                ">"
-            );
-
-            ImGui::SameLine(0.0f, 6.0f);
-
-            const std::size_t separator = line.find(' ', 2);
-
-            if (separator == std::string::npos)
-            {
-                TextColored(
-                    COLOR_COMMAND,
-                    line.substr(2)
-                );
-                return;
-            }
-
-            TextColored(
-                COLOR_COMMAND,
-                line.substr(2, separator - 2)
-            );
-
-            ImGui::SameLine(0.0f, 8.0f);
-
-            TextColored(
-                COLOR_PARAMETER,
-                line.substr(separator + 1)
-            );
-        }
-
-        // ------------------------------------------------------------
-        // Ausgabe einer Variablen
-        // ------------------------------------------------------------
-
-        void DrawVariableLine(const std::string& line)
-        {
-            const std::size_t equal = line.find('=');
-
-            if (equal == std::string::npos)
-            {
-                TextColored(COLOR_NORMAL, line);
-                return;
-            }
-
-            TextColored(
-                COLOR_VARIABLE,
-                line.substr(0, equal)
-            );
-
-            ImGui::SameLine(0.0f, 4.0f);
-
-            TextColored(
-                COLOR_DESCRIPTION,
-                "="
-            );
-
-            ImGui::SameLine(0.0f, 4.0f);
-
-            TextColored(
-                COLOR_VALUE,
-                line.substr(equal + 1)
-            );
-        }
-
-        // ------------------------------------------------------------
-        // Ausgabe einer List-Zeile
-        // ------------------------------------------------------------
-
-        void DrawListLine(const std::string& line)
-        {
-            const std::size_t description = line.find('#');
-
-            std::string content =
-                description == std::string::npos
-                ? line
-                : line.substr(0, description);
-
-            std::string desc =
-                description == std::string::npos
-                ? ""
-                : line.substr(description + 1);
-
-            while (!content.empty() &&
-                std::isspace(static_cast<unsigned char>(content.back())))
-            {
-                content.pop_back();
-            }
-
-            const std::size_t first =
-                content.find_first_not_of(" \t");
+            const size_t first =
+                value.find_first_not_of(" \t\r\n");
 
             if (first == std::string::npos)
-                return;
+                return {};
 
-            content.erase(0, first);
+            const size_t last =
+                value.find_last_not_of(" \t\r\n");
 
-            const std::size_t equal = content.find('=');
+            return value.substr(
+                first,
+                last - first + 1
+            );
+        }
 
-            if (equal != std::string::npos)
+
+        static bool IsRegistryLine(const std::string& line)
+        {
+            return
+                line.find("<function>") != std::string::npos ||
+                line.find(" = ") != std::string::npos;
+        }
+
+
+        
+
+
+        // ------------------------------------------------------------
+        // Ausgabe
+        // ------------------------------------------------------------
+
+        void DrawOutput(float dropdownHeight)
+        {
+            const float inputHeight =
+                ImGui::GetFrameHeightWithSpacing() + 12.0f;
+
+            ImGui::BeginChild(
+                "##ConsoleOutput",
+                ImVec2(
+                    0.0f,
+                    -inputHeight - dropdownHeight
+                ),
+                false,
+                ImGuiWindowFlags_HorizontalScrollbar
+            );
+
+            const auto output = m_console.GetOutput();
+
+            bool registryTableOpen = false;
+
+            for (const std::string& outputEntry : output)
             {
-                std::string variable = content.substr(0, equal);
-                std::string value = content.substr(equal + 1);
+                std::istringstream stream(outputEntry);
+                std::string line;
 
-                auto Trim = [](std::string& str)
+                while (std::getline(stream, line))
+                {
+                    if (!line.empty() && line.back() == '\r')
+                        line.pop_back();
+
+                    line = Trim(line);
+
+                    if (line.empty())
+                        continue;
+
+                    if (IsRegistryLine(line))
                     {
-                        const auto start =
-                            str.find_first_not_of(" \t");
+                        if (!registryTableOpen)
+                            registryTableOpen = BeginRegistryTable();
 
-                        const auto end =
-                            str.find_last_not_of(" \t");
-
-                        if (start == std::string::npos)
+                        if (registryTableOpen)
+                            DrawRegistryRow(line);
+                        else
+                            DrawOutputLine(line);
+                    }
+                    else
+                    {
+                        if (registryTableOpen)
                         {
-                            str.clear();
-                            return;
+                            ImGui::EndTable();
+                            registryTableOpen = false;
                         }
 
-                        str = str.substr(start, end - start + 1);
-                    };
+                        DrawOutputLine(line);
+                    }
+                }
+            }
 
-                Trim(variable);
-                Trim(value);
+            if (registryTableOpen)
+                ImGui::EndTable();
 
-                ImGui::TextColored(
-                    COLOR_VARIABLE,
-                    "%-24s",
-                    variable.c_str()
+            if (m_scrollToBottom)
+            {
+                ImGui::SetScrollHereY(1.0f);
+                m_scrollToBottom = false;
+            }
+
+            ImGui::EndChild();
+        }
+        float GetCompletionDropdownHeight() const
+        {
+            if (m_completionCandidates.empty())
+                return 0.0f;
+
+            const size_t count =
+                std::min<size_t>(
+                    m_completionCandidates.size(),
+                    6
                 );
 
-                ImGui::SameLine();
+            return
+                static_cast<float>(count) *
+                ImGui::GetTextLineHeightWithSpacing()
+                + ImGui::GetStyle().WindowPadding.y * 2.0f;
+        }
 
-                ImGui::TextColored(
-                    COLOR_DESCRIPTION,
-                    "="
+        bool BeginRegistryTable()
+        {
+            if (!ImGui::BeginTable(
+                "##ConsoleRegistry",
+                4,
+                ImGuiTableFlags_RowBg |
+                ImGuiTableFlags_BordersInnerV |
+                ImGuiTableFlags_SizingFixedFit |
+                ImGuiTableFlags_Resizable
+            ))
+            {
+                return false;
+            }
+
+            ImGui::TableSetupColumn(
+                "Name",
+                ImGuiTableColumnFlags_WidthFixed,
+                210.0f
+            );
+
+            ImGui::TableSetupColumn(
+                "Typ",
+                ImGuiTableColumnFlags_WidthFixed,
+                90.0f
+            );
+
+            ImGui::TableSetupColumn(
+                "Wert",
+                ImGuiTableColumnFlags_WidthFixed,
+                150.0f
+            );
+
+            ImGui::TableSetupColumn(
+                "Beschreibung",
+                ImGuiTableColumnFlags_WidthStretch
+            );
+
+            ImGui::TableHeadersRow();
+
+            return true;
+        }
+
+
+        void DrawRegistryRow(const std::string& source)
+        {
+            std::string line = source;
+            std::string name;
+            std::string value;
+            std::string description;
+            bool isFunction = false;
+
+            // Beschreibung abtrennen.
+            const size_t hashPosition = line.find('#');
+
+            if (hashPosition != std::string::npos)
+            {
+                description = Trim(
+                    line.substr(hashPosition + 1)
                 );
 
-                ImGui::SameLine();
+                line = Trim(
+                    line.substr(0, hashPosition)
+                );
+            }
 
+            // Funktion erkennen.
+            const size_t functionPosition =
+                line.find("<function>");
+
+            if (functionPosition != std::string::npos)
+            {
+                name = Trim(
+                    line.substr(0, functionPosition)
+                );
+
+                isFunction = true;
+            }
+            else
+            {
+                // Variable erkennen.
+                const size_t equalPosition =
+                    line.find(" = ");
+
+                if (equalPosition == std::string::npos)
+                    return;
+
+                name = Trim(
+                    line.substr(0, equalPosition)
+                );
+
+                value = Trim(
+                    line.substr(equalPosition + 3)
+                );
+            }
+
+            ImGui::TableNextRow();
+
+            // Name
+            ImGui::TableSetColumnIndex(0);
+
+            ImGui::TextColored(
+                isFunction ? COLOR_COMMAND : COLOR_VARIABLE,
+                "%s",
+                name.c_str()
+            );
+
+            // Typ
+            ImGui::TableSetColumnIndex(1);
+
+            if (isFunction)
+            {
+                ImGui::TextColored(
+                    COLOR_FUNCTION,
+                    "function"
+                );
+            }
+            else
+            {
+                ImGui::TextDisabled("variable");
+            }
+
+            // Wert
+            ImGui::TableSetColumnIndex(2);
+
+            if (!value.empty())
+            {
                 ImGui::TextColored(
                     COLOR_VALUE,
                     "%s",
                     value.c_str()
                 );
             }
-            else
+
+            // Beschreibung
+            ImGui::TableSetColumnIndex(3);
+
+            if (!description.empty())
             {
-                const std::size_t function =
-                    content.find("<function>");
-
-                if (function != std::string::npos)
-                {
-                    ImGui::TextColored(
-                        COLOR_COMMAND,
-                        "%-24s",
-                        content.substr(0, function).c_str()
-                    );
-
-                    ImGui::SameLine();
-
-                    ImGui::TextColored(
-                        COLOR_PARAMETER,
-                        "<function>"
-                    );
-                }
-                else
-                {
-                    TextColored(COLOR_NORMAL, content);
-                }
-            }
-
-            if (!desc.empty())
-            {
-                ImGui::SameLine(0.0f, 12.0f);
-
-                TextColored(
+                ImGui::TextColored(
                     COLOR_DESCRIPTION,
-                    "# " + desc
+                    "%s",
+                    description.c_str()
                 );
             }
         }
 
-        // ------------------------------------------------------------
-        // Allgemeine Ausgabe
-        // ------------------------------------------------------------
 
         void DrawOutputLine(const std::string& line)
         {
-            if (line.empty())
-            {
-                ImGui::Dummy(ImVec2(0.0f, 4.0f));
-                return;
-            }
-
             if (line.rfind("> ", 0) == 0)
             {
-                DrawCommandLine(line);
-                return;
+                ImGui::TextColored(
+                    COLOR_COMMAND,
+                    "%s",
+                    line.c_str()
+                );
             }
-
-            if (line.find("Error:") != std::string::npos ||
-                line.find("Unknown command") == 0 ||
-                line.find("Invalid value") == 0 ||
-                line.find("Wrong argument") == 0 ||
-                line.find("Could not parse") == 0)
+            else if (
+                line.find("error") != std::string::npos ||
+                line.find("Error") != std::string::npos
+                )
             {
-                TextColored(COLOR_ERROR, line);
-                return;
+                ImGui::TextColored(
+                    COLOR_ERROR,
+                    "%s",
+                    line.c_str()
+                );
             }
-
-            if (line.find("<function>") != std::string::npos ||
-                line.find(" # ") != std::string::npos)
+            else
             {
-                DrawListLine(line);
-                return;
+                ImGui::TextUnformatted(line.c_str());
             }
-
-            if (line.find(" = ") != std::string::npos)
-            {
-                DrawVariableLine(line);
-                return;
-            }
-
-            TextColored(COLOR_NORMAL, line);
         }
 
-        // ------------------------------------------------------------
-        // Konsolenausgabe
-        // ------------------------------------------------------------
-
-        void DrawOutput()
-        {
-            const float inputHeight =
-                ImGui::GetFrameHeightWithSpacing() +
-                ImGui::GetStyle().ItemSpacing.y;
-
-            ImGui::BeginChild(
-                "##ConsoleOutput",
-                ImVec2(0.0f, -inputHeight),
-                true,
-                ImGuiWindowFlags_HorizontalScrollbar
-            );
-
-            auto output = m_console.GetOutput();
-
-            bool scrollToBottom = false;
-
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-
-                // Alle aktuellen Thread-Zeilen anzeigen.
-                for (const auto& entry : m_threadOutput)
-                {
-                    const auto& line = entry.second.line;
-
-                    if (!line.empty())
-                        output.push_back(line);
-                }
-
-                scrollToBottom = m_scrollToBottom;
-                m_scrollToBottom = false;
-            }
-
-            for (const std::string& line : output)
-            {
-                DrawOutputLine(line);
-            }
-
-            if (scrollToBottom ||
-                ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-            {
-                ImGui::SetScrollHereY(1.0f);
-            }
-
-            ImGui::EndChild();
-        }
-
-        // ------------------------------------------------------------
-        // Input Callback
-        // ------------------------------------------------------------
-
-        static int InputCallback(
-            ImGuiInputTextCallbackData* data)
-        {
-            auto* self =
-                static_cast<ConsoleImGui*>(data->UserData);
-
-            if (data->EventFlag ==
-                ImGuiInputTextFlags_CallbackCompletion)
-            {
-                self->CompleteInput(data);
-            }
-            else if (data->EventFlag ==
-                ImGuiInputTextFlags_CallbackHistory)
-            {
-                self->NavigateHistory(data);
-            }
-
-            return 0;
-        }
 
         // ------------------------------------------------------------
         // Autocomplete
         // ------------------------------------------------------------
 
-        void CompleteInput(
-            ImGuiInputTextCallbackData* data)
+        std::string GetCurrentToken() const
         {
-            int wordStart = data->CursorPos;
+            const std::string input = m_input;
 
-            while (wordStart > 0)
+            const size_t position =
+                input.find_last_of(" \t");
+
+            if (position == std::string::npos)
+                return input;
+
+            return input.substr(position + 1);
+        }
+
+
+        void ReplaceCurrentToken(const std::string& completion)
+        {
+            const std::string input = m_input;
+
+            const size_t position =
+                input.find_last_of(" \t");
+
+            std::string result;
+
+            if (position == std::string::npos)
             {
-                const char c = data->Buf[wordStart - 1];
-
-                if (c == ' ' || c == '\t')
-                    break;
-
-                --wordStart;
+                result = completion;
+            }
+            else
+            {
+                result =
+                    input.substr(0, position + 1) +
+                    completion;
             }
 
-            const std::string prefix(
-                data->Buf + wordStart,
-                data->CursorPos - wordStart
+            std::snprintf(
+                m_input,
+                sizeof(m_input),
+                "%s",
+                result.c_str()
             );
+
+            m_focusInputNextFrame = true;
+        }
+
+
+        void UpdateCompletionCandidates()
+        {
+            const std::string prefix = GetCurrentToken();
+
+            m_completionCandidates.clear();
 
             if (prefix.empty())
                 return;
 
-            const auto matches =
+            m_completionCandidates =
                 m_console.GetCompletions(prefix);
 
-            if (matches.empty())
-                return;
-
-            if (matches.size() == 1)
-            {
-                data->DeleteChars(
-                    wordStart,
-                    data->CursorPos - wordStart
-                );
-
-                data->InsertChars(
-                    wordStart,
-                    matches.front().c_str()
-                );
-
-                return;
-            }
-
-            m_completionMessage.clear();
-
-            for (const auto& match : matches)
-            {
-                if (!m_completionMessage.empty())
-                    m_completionMessage += "    ";
-
-                m_completionMessage += match;
-            }
-
-            m_showCompletionHint = true;
+            // Exakte Treffer nicht erneut anzeigen.
+            m_completionCandidates.erase(
+                std::remove(
+                    m_completionCandidates.begin(),
+                    m_completionCandidates.end(),
+                    prefix
+                ),
+                m_completionCandidates.end()
+            );
         }
 
+
+        void DrawCompletionDropdown()
+        {
+            if (m_completionCandidates.empty())
+                return;
+
+            const size_t visibleCount =
+                std::min<size_t>(
+                    m_completionCandidates.size(),
+                    6
+                );
+
+            const float height =
+                static_cast<float>(visibleCount) *
+                ImGui::GetTextLineHeightWithSpacing() +
+                ImGui::GetStyle().WindowPadding.y * 2.0f;
+
+            ImGui::BeginChild(
+                "##ConsoleCompletionDropdown",
+                ImVec2(0.0f, height),
+                true
+            );
+
+            for (const std::string& candidate :
+                m_completionCandidates)
+            {
+                if (ImGui::Selectable(
+                    candidate.c_str(),
+                    false
+                ))
+                {
+                    ReplaceCurrentToken(candidate);
+                    m_completionCandidates.clear();
+                    break;
+                }
+            }
+
+            ImGui::EndChild();
+        }
+
+
         // ------------------------------------------------------------
-        // History Navigation
+        // Eingabehistorie
         // ------------------------------------------------------------
 
-        void NavigateHistory(
-            ImGuiInputTextCallbackData* data)
+        void NavigateHistory(int direction)
         {
-            const auto history =
-                m_console.GetHistory();
+            const auto& history = m_console.GetHistory();
 
             if (history.empty())
                 return;
 
-            if (data->EventKey == ImGuiKey_UpArrow)
+            if (direction < 0)
             {
-                if (m_historyPosition < 0)
+                if (m_historyPosition == -1)
                 {
                     m_historyPosition =
                         static_cast<int>(history.size()) - 1;
@@ -663,7 +571,7 @@ namespace ng::console
                     --m_historyPosition;
                 }
             }
-            else if (data->EventKey == ImGuiKey_DownArrow)
+            else
             {
                 if (m_historyPosition >= 0)
                 {
@@ -673,16 +581,47 @@ namespace ng::console
                         static_cast<int>(history.size()))
                     {
                         m_historyPosition = -1;
+                        m_input[0] = '\0';
+                        return;
                     }
                 }
             }
 
-            const char* historyText =
-                m_historyPosition >= 0
-                ? history[
-                    static_cast<std::size_t>(m_historyPosition)
-                ].c_str()
-                        : "";
+            if (m_historyPosition >= 0)
+            {
+                std::snprintf(
+                    m_input,
+                    sizeof(m_input),
+                    "%s",
+                    history[m_historyPosition].c_str()
+                );
+            }
+        }
+
+
+        // ------------------------------------------------------------
+        // ImGui Input Callback
+        // ------------------------------------------------------------
+
+        static int InputCallback(ImGuiInputTextCallbackData* data)
+        {
+            auto* console =
+                static_cast<ConsoleImGui*>(data->UserData);
+
+            if (!console)
+                return 0;
+
+            switch (data->EventFlag)
+            {
+            case ImGuiInputTextFlags_CallbackCompletion:
+            {
+                console->UpdateCompletionCandidates();
+
+                if (console->m_completionCandidates.size() == 1)
+                {
+                    console->ReplaceCurrentToken(
+                        console->m_completionCandidates.front()
+                    );
 
                     data->DeleteChars(
                         0,
@@ -691,8 +630,65 @@ namespace ng::console
 
                     data->InsertChars(
                         0,
-                        historyText
+                        console->m_input
                     );
+                }
+                else if (
+                    console->m_completionCandidates.size() > 1
+                    )
+                {
+                    // Bei mehreren Treffern bleibt die Eingabe
+                    // unverändert. Das Dropdown zeigt die Auswahl.
+                }
+
+                break;
+            }
+
+            case ImGuiInputTextFlags_CallbackHistory:
+            {
+                if (data->EventKey == ImGuiKey_UpArrow)
+                {
+                    console->NavigateHistory(-1);
+                }
+                else if (data->EventKey == ImGuiKey_DownArrow)
+                {
+                    console->NavigateHistory(1);
+                }
+
+                data->DeleteChars(
+                    0,
+                    data->BufTextLen
+                );
+
+                data->InsertChars(
+                    0,
+                    console->m_input
+                );
+
+                break;
+            }
+            }
+
+            return 0;
         }
+
+
+    private:
+
+        Console& m_console;
+
+        bool m_open = true;
+        bool m_scrollToBottom = true;
+        bool m_focusInputNextFrame = false;
+
+        int m_historyPosition = -1;
+
+        char m_input[512]{};
+
+        std::vector<std::string> m_completionCandidates;
     };
+
 }
+
+
+

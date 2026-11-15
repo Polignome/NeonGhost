@@ -417,6 +417,15 @@
     <ClInclude Include="ConsoleTypes.h">
       <Filter>Headerdateien\Io</Filter>
     </ClInclude>
+    <ClInclude Include="BspSceneIO.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="BspSceneSerialize.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="BspSceneFwd.h">
+      <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostCore.cpp">

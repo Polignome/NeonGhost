@@ -156,6 +156,9 @@
     <ClInclude Include="Brush.h" />
     <ClInclude Include="BSP.h" />
     <ClInclude Include="Bspcollision.h" />
+    <ClInclude Include="BspSceneFwd.h" />
+    <ClInclude Include="BspSceneIO.h" />
+    <ClInclude Include="BspSceneSerialize.h" />
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CameraController.h" />
     <ClInclude Include="CameraFrustum.h" />

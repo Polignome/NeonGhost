@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <cstdio>
 
+
 namespace ng
 {
     namespace bsp
@@ -416,6 +417,7 @@ namespace ng
             BSPTree<T> m_tree;
             std::vector<BSPPolygon<T>> m_polys;
             std::vector<std::vector<uint32_t>> m_cellPolys;
+            friend struct ng::io::BspAccess;
 
             mutable std::vector<uint32_t> m_stamp;
             mutable uint32_t m_stampValue = 0;

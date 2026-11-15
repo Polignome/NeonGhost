@@ -40,6 +40,9 @@
 #include <numeric>
 #include <map>
 
+
+
+
 namespace ng
 {
     namespace bsp
@@ -791,7 +794,7 @@ namespace ng
 
         private:
             using Bits = pvs_detail::Bits;
-
+            friend struct ng::io::BspAccess;
             struct FlowPortal
             {
                 std::vector<Vec3> verts;

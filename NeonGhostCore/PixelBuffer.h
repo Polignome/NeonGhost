@@ -30,9 +30,10 @@ namespace ng {
 					if (width <= 0 || height <= 0) {
 						m_height = 0;
 						m_width = 0;
+						m_size = 0;        // NEU
+						m_mem_size = 0;    // NEU
 						return;
-					}
-					m_height = height;
+					}					m_height = height;
 					m_width = width;
 					m_size = m_width * m_height;
 					m_mem_size = m_size * sizeof(uint32_t);

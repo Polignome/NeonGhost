@@ -231,6 +231,7 @@ namespace ng::renderer::rasterizer
             int level = (int)std::log2((double)rho);
             return std::clamp(level, 0, (int)texture->GetMipLevels());
             
+
         }
     };
 
@@ -279,8 +280,8 @@ namespace ng::renderer::rasterizer
 
     struct LightmapCorrection
     {
-        float gamma = 2.2f;   // 1.0 = aus, 1.6 bis 2.2 = heller
-        float brightness = 1.3f;   // linearer Faktor, 1.0 = aus, 2.0 = Overbright
+        float gamma = 1.0f;   // 1.0 = aus, 1.6 bis 2.2 = heller
+        float brightness = 1.0f;   // linearer Faktor, 1.0 = aus, 2.0 = Overbright
 
         uint8_t  lut[256];         // Gamma-Tabelle
         uint32_t scale = 0;        // Brightness als Festkomma (siehe Shader)

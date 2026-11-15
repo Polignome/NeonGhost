@@ -28,6 +28,8 @@
 #include <LightGun.h>
 #include "ConsoleFramebuffer.h"
 #include "console_logo.h"
+#include <BspSceneSerialize.h>
+
 #pragma comment(lib, "SDL2.lib")
 #pragma comment(lib, "SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -112,7 +114,7 @@ std::string VFSFilePicker(bool& show, std::string wildcard) {
     return "";
 }
 
-void LoadMapReady(bool error, BspScene<NG_MATH_FLOAT>&& scene) {
+void LoadMapReady(bool error, ng::io::BspScene<NG_MATH_FLOAT>&& scene) {
     if (error) {
         std::cout << "Error loading map" << std::endl;
         return;
@@ -369,7 +371,6 @@ void InitStuff() {
 
 
 
-
    
 
     m_console_manager.RegisterVariable("m_exit_program", m_exit_program, "Exit the program ", ng::console::EntryFlags::ARCHIVE);
@@ -391,6 +392,9 @@ int main(int argc, char** argv) {
     static bool m_pick_vfs_file = false;
     static bool m_load_obj = false;
     static bool m_load_hlm = false;
+    static bool m_load_bin = false;
+    static bool m_save_bin = false;
+
     //ConsoleFramebuffer fb(160, 100);
     ConsoleFramebuffer fb(124, 200);
 
@@ -428,7 +432,7 @@ int main(int argc, char** argv) {
     m_rasterizer_3d.SetTiledRenderingEnabled(false);
     m_rasterizer_3d.SetTiledSingleThreadedDebug(false);  // erst so, gegen den alten Pfad vergleichen
     
-	m_console_gui.DisablePrintfBypass(); 
+	//m_console_gui.DisablePrintfBypass(); 
     // Main loop
     
     
@@ -517,7 +521,11 @@ int main(int argc, char** argv) {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 //if (ImGui::MenuItem("Load Waveform Obj")) m_load_obj = true;
-                if (ImGui::MenuItem("Load HalfLifeMap",0,nullptr,!compiler.IsBusy())) m_load_hlm = true;
+                if (ImGui::MenuItem("Load HalfLifeMap", 0, nullptr, !compiler.IsBusy())) m_load_hlm = true;
+                ImGui::Separator();
+                if (ImGui::MenuItem("Save Bin", 0, nullptr, !compiler.IsBusy())) m_save_bin = true;
+                if (ImGui::MenuItem("Load Bin", 0, nullptr, !compiler.IsBusy())) m_load_bin = true;
+                ImGui::Separator();
                 if (ImGui::MenuItem("Quit")) m_exit_program = true;
                 ImGui::EndMenu();
             }
@@ -526,7 +534,6 @@ int main(int argc, char** argv) {
    			if (ImGui::MenuItem("Compiler Setup")) m_compiler_setting_window = true;
                 ImGui::EndMenu();
             }
-
 
 
             if (ImGui::BeginMenu("Tools")) {
@@ -610,10 +617,59 @@ int main(int argc, char** argv) {
 		if (m_masked_occlusion_buffer_window_visible)RenderMocWindow(m_masked_occlusion_buffer_window_visible); 
         if (m_compiler_setting_window) RenderCompilerSetupWindow(m_compiler_setting_window, radOpt, lmOpt, vo, po);
 
+        if (m_save_bin) {
+            std::string filename = ng::gui::FilePicker(m_save_bin, "*.ngbps", false);
+            if (!filename.empty()) {
+                std::cout << "Saving BSP scene to: " << filename << std::endl;
+                try {
+                    ng::io::CountMissingTextureIds(m_bsp_scene, "before Save");
+                    ng::io::SaveBspScene(filename, m_bsp_scene);
+                    std::cout << "BSP scene saved successfully." << std::endl;
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Error saving BSP scene: " << e.what() << std::endl;
+                }
+            }
+        }
+
+
+        if (m_load_bin) {
+            std::string filename = ng::gui::FilePicker(m_load_bin, "*.*", true);
+            if (!filename.empty()) {
+
+
+                m_bsp_scene = ng::io::BspScene<NG_MATH_FLOAT>();  // Reset BSP scene to free memory
+
+
+                std::cout << "Loading BSP scene from: " << filename << std::endl;
+                try {
+                    ng::io::LoadBspScene(filename, m_bsp_scene);
+                    ng::io::CountMissingTextureIds(m_bsp_scene, "after Load");
+
+                    ng::map::texture::Wad3File wad(m_bsp_scene.m_wadname);        // Konstruktor wie bei dir üblich
+                    for (const auto& n : m_bsp_scene.m_texture_names)
+                        ConvertfromWad(wad, n);
+
+                    ng::io::RestoreTextures(m_bsp_scene, [](const std::string& name) {
+                        return ng::resource::TextureResourceManager::GetResource(name);
+                        });
+
+                    ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
+                    m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
+
+                    std::cout << "BSP scene loaded successfully." << std::endl;
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Error loading BSP scene: " << e.what() << std::endl;
+                }
+            }
+        }
+
+
         if (m_load_hlm) {
             std::string filename = ng::gui::FilePicker(m_load_hlm, "*.map");
             if (!filename.empty()) {
-			
+
 
                
 
@@ -655,25 +711,24 @@ int main(int argc, char** argv) {
                 );
 
                 */
-
+                m_bsp_scene = ng::io::BspScene<NG_MATH_FLOAT>();  // Reset BSP scene to free memory
                 Compile(filename, po, vo, lmOpt, radOpt,m_bsp_scene );
                 m_player.SetWarpPortals(&m_bsp_scene.m_warpPortals);
 
                 ng::resource::TextureResourceManager::LoadTextureFromPixelBuffer("__lightmap_atlas__", m_bsp_scene.m_lightmap);
-                m_bsp_scene.m_lightmap.Resize(0, 0);
+               // m_bsp_scene.m_lightmap.Resize(0, 0);
                 m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
             }
             
         }
-
-                
+                        
         ImGui::Render();
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         SwapScreen(clear_color_with_alpha);
     }
 
     
-	m_bsp_scene = BspScene<NG_MATH_FLOAT>();  // Reset BSP scene to free memory    
+	m_bsp_scene = ng::io::BspScene<NG_MATH_FLOAT>();  // Reset BSP scene to free memory    
 	m_bsp_lightmap = ng::renderer::gfx::Texture();  // Reset lightmap texture to free memory
     ng::resource::Manager::Flush();
 

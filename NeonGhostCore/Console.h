@@ -24,6 +24,29 @@ public:
     void ClearOutput(){output.clear();} void ClearHistory(){history.clear();}
     bool SaveConfig(const std::string& f,std::string* e=nullptr)const{return config.Save(f,e);} bool LoadConfig(const std::string& f,std::string* e=nullptr)const{return config.Load(f,e);}
     void PushOutput(std::string s) { output.push_back(std::move(s)); if (output.size() > maxOutput)output.erase(output.begin()); }
+    std::string FormatVariable(const std::string& name) const
+    {
+        const auto* entry = manager.GetEntry(name);
+
+        if (!entry)
+            return name + " = <unknown>";
+
+        std::string result;
+
+        result += entry->GetName();
+        result += " = ";
+        result += entry->GetValue();
+
+        const std::string& description = entry->GetDescription();
+
+        if (!description.empty())
+        {
+            result += "  # ";
+            result += description;
+        }
+
+        return result;
+    }
 private:
     
     ConsoleManager& manager;ConsoleConfig config;std::vector<std::string> history,output;std::size_t maxHistory=128,maxOutput=512;

@@ -58,7 +58,7 @@ bool _Image::Load(buffers::PixelBufferRGBA& buffer)
         buffer.GetRawBuffer(),
         buffer.MemSize()
     );
-
+    return true;
 }
 
 bool _Image::Load(const std::string& filename)

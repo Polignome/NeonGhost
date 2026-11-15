@@ -14,7 +14,7 @@ namespace ng {
     namespace gui {
         bool ExitPopup(bool& view_exit_dialog);
         void ShowFontViewer(bool& open);
-        std::string FilePicker(bool& show, std::string wildcard);
+        std::string FilePicker(bool& show, std::string wildcard,bool load=true);
 
         class FPSCounter
         {

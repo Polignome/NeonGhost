@@ -6,6 +6,8 @@
 #include <windows.h>
 #include <regex>
 #include <Matrix.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 
 
@@ -326,7 +328,7 @@ std::string ng::tools::abs_exe_directory()
 #endif
 }
 
-std::string ng::gui::FilePicker(bool& show, std::string wildcard) {
+std::string ng::gui::FilePicker(bool& show, std::string wildcard,bool load) {
     if (!show) return "";
     static std::filesystem::path p = std::filesystem::current_path();
     static std::string filename = "";
@@ -373,13 +375,31 @@ std::string ng::gui::FilePicker(bool& show, std::string wildcard) {
 
 
         ImGui::Separator();
+        
+        if (!load) {
+            ImGui::Text("File:"); ImGui::SameLine();
+            ImGui::SetNextItemWidth(wsize.x - ImGui::CalcTextSize("File:").x * 2);
+            ImGui::BeginDisabled(false);
+            char filenamec[256];
+            strcpy_s(filenamec, sizeof(filenamec), filename.data());
+            ImGui::InputText("##File:", filenamec,std::size(filenamec));
+            filename = std::string(filenamec);
+            ImGui::EndDisabled();
+        }
+
+
+
 
         ImGui::Text("Path:"); ImGui::SameLine();
         ImGui::SetNextItemWidth(wsize.x - ImGui::CalcTextSize("Path:").x * 2);
         ImGui::BeginDisabled(true);
-        std::string path_name = path + "\\" + filename;
+        std::string path_name = path;
+        if (load) path_name += "\\" + filename;
         ImGui::InputText("##Path:", path_name.data(), path_name.length());
         ImGui::EndDisabled();
+
+
+
         ImGui::Separator();
 
 
@@ -427,6 +447,7 @@ std::string ng::gui::FilePicker(bool& show, std::string wildcard) {
         ImGui::EndChild();
 
         if (ImGui::Button("Select")) {
+            if (!load) path_name += "\\" + filename;
             file_name = path_name;
             show = false;
         }

@@ -45,10 +45,12 @@ namespace ng {
                 // Wirft std::runtime_error, wenn die Textur nicht gefunden wird.
                 Texture GetTexture(const std::string& name) const;
 
+				inline std::string WadFilePath() const { return m_wad_file; }
+
             private:
                 std::vector<uint8_t> m_buffer;
                 std::vector<Entry>   m_entries;
-
+				std::string m_wad_file = "";
                 int32_t m_numEntries = 0;
                 int32_t m_dirOffset = 0;
 

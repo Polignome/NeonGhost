@@ -19,6 +19,12 @@
 #include <unordered_map>
 #include <random>
 #include "WarpPortal.h"
+
+#pragma once
+
+
+namespace ng { namespace io { struct BspAccess; } }
+
 namespace ng
 {
     namespace bsp
@@ -69,7 +75,7 @@ namespace ng
             uint32_t flags = 0;
             int volumeId = -1;
             int32_t portalId = -1;
-
+            int32_t textureId = -1;
             // ---- Lightmap-Zuordnung, gefuellt von BuildLightmapAtlas() /
             //      BakeExtraPolygonLightmaps() ----
             int32_t lmPosX = -1, lmPosY = -1;
@@ -196,6 +202,7 @@ namespace ng
             frontOut.volumeId = backOut.volumeId = poly.volumeId;
             frontOut.texture = backOut.texture = poly.texture;
             frontOut.portalId = backOut.portalId = poly.portalId;
+            frontOut.textureId = backOut.textureId = poly.textureId;
 
             for (size_t i = 0; i < n; ++i)
             {
@@ -612,7 +619,8 @@ namespace ng
         private:
             friend class BSPNode<T>;
             friend class BSPTree<T>;
-
+            friend struct ng::io::BspAccess;
+            
             std::vector<ng::math::Matrix<3, 1, T>> m_verts;
             math::RayPlaneLine<3, T> m_plane;
             int32_t m_leafa = -1;
@@ -1203,7 +1211,7 @@ namespace ng
 
         private:
             friend class BSPTree<T>;
-
+            friend struct ng::io::BspAccess;
             struct PortalFrag {
                 std::vector<Vec3> verts;
                 int32_t leaf;
@@ -2380,6 +2388,7 @@ namespace ng
 
         private:
             friend class BSPNode<T>;
+            friend struct ng::io::BspAccess;
 
             std::shared_ptr<BSPNode<T>> m_root;
             std::vector<std::shared_ptr<BSPNode<T>>> m_leaflist;

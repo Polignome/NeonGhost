@@ -1715,6 +1715,204 @@ namespace ng
 
 
 
+            // ================================================================
+// FXAAEffect
+//
+// Kantenerkennung ueber Luma-Kontrast, Kantensuche entlang der
+// Kante, bilineares Resampling mit Subpixel-Offset.
+//
+// edgeThreshold    : relativer Kontrast-Schwellwert (0.063 .. 0.333,
+//                    kleiner = mehr Kanten werden geglaettet)
+// edgeThresholdMin : absoluter Mindestkontrast (dunkle Bereiche)
+// subpixel         : 0 = aus, 1 = sehr weich (gegen Einzelpixel-Flimmern)
+// searchSteps      : max. Suchlaenge entlang der Kante in Pixeln
+// ================================================================
+            template <class T>
+            struct FXAAParams
+            {
+                T   edgeThreshold = static_cast<T>(0.125);
+                T   edgeThresholdMin = static_cast<T>(0.0312);
+                T   subpixel = static_cast<T>(0.75);
+                int searchSteps = 8;
+            };
+
+            template <class T>
+            class FXAAEffect : public IPostFXEffect<T>
+            {
+            public:
+
+                explicit FXAAEffect(const FXAAParams<T>& p = FXAAParams<T>())
+                    : m_p(p)
+                {
+                }
+
+                void SetParams(const FXAAParams<T>& p) { m_p = p; }
+                const FXAAParams<T>& GetParams() const { return m_p; }
+
+                const char* GetName() const override { return "FXAA"; }
+
+                void Apply(GBuffer<T>& gb, T /*time*/) override
+                {
+                    if (!gb.HasColor() || gb.width < 3 || gb.height < 3)
+                        return;
+
+                    const int W = gb.width;
+                    const int H = gb.height;
+                    const size_t n = gb.PixelCount();
+
+                    const float edgeThr = static_cast<float>(m_p.edgeThreshold);
+                    const float edgeThrMin = static_cast<float>(m_p.edgeThresholdMin);
+                    const float subQuality = std::clamp(static_cast<float>(m_p.subpixel), 0.0f, 1.0f);
+                    const int   maxSteps = std::max(1, m_p.searchSteps);
+
+                    // --- Quelle + Luma ------------------------------------------------
+                    m_src.assign(gb.color, gb.color + n);
+                    m_luma.resize(n);
+
+                    for (size_t i = 0; i < n; ++i)
+                    {
+                        const uint32_t c = m_src[i];
+                        const int r = (c >> 16) & 0xff;
+                        const int g = (c >> 8) & 0xff;
+                        const int b = c & 0xff;
+                        m_luma[i] = static_cast<uint8_t>((r * 77 + g * 150 + b * 29) >> 8);
+                    }
+
+                    const uint8_t* L = m_luma.data();
+
+                    // Luma mit Clamp, 0..1
+                    auto lum = [&](int x, int y) -> float
+                        {
+                            x = std::clamp(x, 0, W - 1);
+                            y = std::clamp(y, 0, H - 1);
+                            return static_cast<float>(L[static_cast<size_t>(y) * W + x]) * (1.0f / 255.0f);
+                        };
+
+                    for (int y = 0; y < H; ++y)
+                    {
+                        for (int x = 0; x < W; ++x)
+                        {
+                            const float lM = lum(x, y);
+                            const float lN = lum(x, y - 1);
+                            const float lS = lum(x, y + 1);
+                            const float lW = lum(x - 1, y);
+                            const float lE = lum(x + 1, y);
+
+                            const float lMax = std::max({ lM, lN, lS, lW, lE });
+                            const float lMin = std::min({ lM, lN, lS, lW, lE });
+                            const float range = lMax - lMin;
+
+                            // Zu wenig Kontrast -> keine Kante
+                            if (range < std::max(edgeThrMin, lMax * edgeThr))
+                                continue;
+
+                            const float lNW = lum(x - 1, y - 1);
+                            const float lNE = lum(x + 1, y - 1);
+                            const float lSW = lum(x - 1, y + 1);
+                            const float lSE = lum(x + 1, y + 1);
+
+                            // --- Subpixel-Faktor (Einzelpixel-Aliasing) ---------------
+                            const float lAvg =
+                                (2.0f * (lN + lS + lW + lE) + lNW + lNE + lSW + lSE) * (1.0f / 12.0f);
+
+                            float sub = std::clamp(std::abs(lAvg - lM) / range, 0.0f, 1.0f);
+                            sub = sub * sub * (3.0f - 2.0f * sub);   // smoothstep
+                            sub = sub * sub * subQuality;
+
+                            // --- Kantenrichtung ----------------------------------------
+                            const float edgeH =
+                                std::abs(lNW + lNE - 2.0f * lN) +
+                                2.0f * std::abs(lW + lE - 2.0f * lM) +
+                                std::abs(lSW + lSE - 2.0f * lS);
+
+                            const float edgeV =
+                                std::abs(lNW + lSW - 2.0f * lW) +
+                                2.0f * std::abs(lN + lS - 2.0f * lM) +
+                                std::abs(lNE + lSE - 2.0f * lE);
+
+                            const bool horz = (edgeH >= edgeV);
+
+                            // Senkrechte Nachbarn zur Kante
+                            const float l1 = horz ? lN : lW;
+                            const float l2 = horz ? lS : lE;
+
+                            const float g1 = std::abs(l1 - lM);
+                            const float g2 = std::abs(l2 - lM);
+
+                            // Auf welcher Seite ist der Kontrast groesser?
+                            const bool  firstSide = (g1 >= g2);
+                            const int   dir = firstSide ? -1 : 1;
+                            const float gradScaled = 0.25f * std::max(g1, g2);
+                            const float lNeighbor = firstSide ? l1 : l2;
+                            const float lLocalAvg = 0.5f * (lM + lNeighbor);
+
+                            // Schrittrichtung ENTLANG der Kante und Versatz zur Nachbarzeile
+                            const int tx = horz ? 1 : 0;
+                            const int ty = horz ? 0 : 1;
+                            const int ox = horz ? 0 : dir;
+                            const int oy = horz ? dir : 0;
+
+                            // --- Kantensuche in beide Richtungen -----------------------
+                            auto search = [&](int sign, float& endDelta) -> int
+                                {
+                                    int i = 1;
+                                    for (; i <= maxSteps; ++i)
+                                    {
+                                        const int px = x + sign * i * tx;
+                                        const int py = y + sign * i * ty;
+
+                                        endDelta = 0.5f * (lum(px, py) + lum(px + ox, py + oy)) - lLocalAvg;
+
+                                        if (std::abs(endDelta) >= gradScaled)
+                                            return i;
+                                    }
+                                    return maxSteps;
+                                };
+
+                            float endNeg = 0.0f, endPos = 0.0f;
+                            const int dNeg = search(-1, endNeg);
+                            const int dPos = search(+1, endPos);
+
+                            const bool  negCloser = (dNeg < dPos);
+                            const int   distClosest = negCloser ? dNeg : dPos;
+                            const float endClosest = negCloser ? endNeg : endPos;
+                            const float span = static_cast<float>(dNeg + dPos);
+
+                            // Passt die Helligkeitsaenderung am Kantenende zur Mitte?
+                            const bool centerSmaller = (lM < lLocalAvg);
+                            const bool correct = ((endClosest < 0.0f) == centerSmaller);
+
+                            float pixelOffset =
+                                correct ? (0.5f - static_cast<float>(distClosest) / span) : 0.0f;
+
+                            const float finalOffset = std::max(pixelOffset, sub);
+
+                            if (finalOffset <= 0.0f)
+                                continue;
+
+                            // --- Resampling mit Subpixel-Offset ------------------------
+                            const float fu = static_cast<float>(x) + (horz ? 0.0f : finalOffset * dir);
+                            const float fv = static_cast<float>(y) + (horz ? finalOffset * dir : 0.0f);
+
+                            gb.color[static_cast<size_t>(y) * W + x] =
+                                detail::SampleBilinearFP(
+                                    m_src.data(), W, H,
+                                    static_cast<int32_t>(fu * 65536.0f),
+                                    static_cast<int32_t>(fv * 65536.0f));
+                        }
+                    }
+                }
+
+            private:
+
+                FXAAParams<T> m_p;
+
+                std::vector<uint32_t> m_src;
+                std::vector<uint8_t>  m_luma;
+            };
+
+
+
 
 
 

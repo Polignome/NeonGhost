@@ -52,6 +52,7 @@
 #include "VFSZipFile.h"
 #include "VFSZipDrive.h"
 #include "BSP.h"
+#include "PVS.h"
 
 #include "SkyBoxGen.h"
 
@@ -68,6 +69,8 @@
                         ng::resource::WaveformObjResourceManager m_static_waveform_ob_resource_manager;
                         
 #endif
+
+
 
 
 namespace ng::renderer::occlusion

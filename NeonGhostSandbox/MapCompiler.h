@@ -16,16 +16,9 @@
 #include <Radiosity.h>
 #include <WarpPortal.h>
 #include <Portalcompile.h>
-
-template <class T>
-struct BspScene {
-    ng::bsp::BSPTree<T> m_bsp;
-    ng::bsp::PVS<T> m_pvs;
-    ng::bsp::VisCells<T> m_cells;
-	ng::renderer::buffers::PixelBufferRGBA m_lightmap;
-    std::vector<ng::bsp::WarpPortal<T>> m_warpPortals;
-
-};
+#include <string>
+#include <exception>
+#include <BspSceneSerialize.h>
 
 inline bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::string& name)
 {
@@ -59,11 +52,11 @@ inline bool ConvertfromWad(const ng::map::texture::Wad3File& wad, const std::str
 template <class T>
 inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T>& po,
     const ng::bsp::VisCellOptions<T>& vo, ng::lightning::LightmapOptions& lmOpt,
-    const ng::lightning::RadiosityOptions<T>& radOpt, BspScene<T>& sscen)
+    const ng::lightning::RadiosityOptions<T>& radOpt, ng::io::BspScene<T>& sscen)
 {
     using Vec3 = ng::math::Matrix<3, 1, T>;
 
-    BspScene<T> scene;
+    ng::io::BspScene<T> scene;
 
     ng::map::HalfLife hl_map;
     if (hl_map.load(map_filename) == ng::map::Parser::NO_PARSER_ERROR) {
@@ -71,6 +64,10 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
         data = hl_map;
 
         ng::map::texture::Wad3File m_wad_file = data.GetTextureWad();
+        scene.m_wadname = m_wad_file.WadFilePath();
+		printf("[MapCompiler] Wad-File: %s\n", scene.m_wadname.c_str());
+        scene.m_texture_names = data.m_texture_names;
+
         for (auto n : data.m_texture_names)
             ConvertfromWad(m_wad_file, n);
 
@@ -83,7 +80,8 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
         auto isTeleportTex = [&](int32_t t) {
             auto it = data.m_id_text.find(t);               // anpassen, falls m_id_text ein vector ist
-            return it != data.m_id_text.end() && it->second == "~teleport";
+            //            return it != data.m_id_text.end() && it->second == "~teleport";
+            return it != data.m_id_text.end() && it->second[0] == '~';
             };
 
         // PORTAL: Portal-Face bestimmen + Portal-ID ins BrushPoly schreiben (VOR dem CSG)
@@ -118,9 +116,26 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
         size_t portalPolyCount = 0;   // PORTAL
 
+        std::unordered_map<std::string, int32_t> texIndex;
+        for (size_t i = 0; i < scene.m_texture_names.size(); ++i)
+            texIndex.emplace(scene.m_texture_names[i], (int32_t)i);
+
+        auto GetTexId = [&](const std::string& name) -> int32_t {
+            auto it = texIndex.find(name);
+            if (it != texIndex.end()) return it->second;
+            const int32_t id = (int32_t)scene.m_texture_names.size();
+            scene.m_texture_names.push_back(name);
+            texIndex.emplace(name, id);
+            return id;
+            };
+
+
+
+
         auto soild_faces = ng::map::extract_prims<T>(brush);
         for (auto p : soild_faces) {
             auto name = data.m_id_text[p.textureIndex()];
+            const int32_t texId = GetTexId(name);
             ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
 
             // PORTAL: Fragment-Markierung bestimmen
@@ -137,31 +152,39 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
             {
                 auto poly = ng::bsp::BSPPolygon<T>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 1);
                 poly.texture = texture;
+                poly.textureId = texId;
                 poly.FinalizeTextureUVs();
 
                 if (portalIndex >= 0)   // PORTAL
                 {
                     poly.flags |= ng::bsp::POLY_FLAG_PORTAL;
                     poly.portalId = portalIndex;
+                    
                     ++portalPolyCount;
                 }
                 polys.push_back(poly);
             }
         }
 
+
+
         auto liquit_faces = ng::map::extract_prims<T>(brush, ng::map::BrushFace<T>::LIQUID);
         for (auto p : liquit_faces) {
+            
             auto name = data.m_id_text[p.textureIndex()];
+            const int32_t texId = GetTexId(name);
             ng::renderer::gfx::Texture texture = ng::resource::TextureResourceManager::GetResource(name);
             for (size_t i = 1; i < p.verts().size() - 1; ++i)
             {
                 auto poly = ng::bsp::BSPPolygon<T>::FromTriangle(p.verts()[0], p.verts()[i], p.verts()[i + 1], 0);
                 poly.texture = texture;
                 poly.FinalizeTextureUVs();
+                poly.textureId = texId;
                 extra_polys.push_back(poly);
 
                 auto poly2 = ng::bsp::BSPPolygon<T>::FromTriangle(p.verts()[i + 1], p.verts()[i], p.verts()[0], 0);
                 poly2.texture = texture;
+                poly2.textureId = texId;
                 poly2.FinalizeTextureUVs();
                 extra_polys.push_back(poly2);
             }
@@ -262,15 +285,13 @@ inline void Compile(const std::string& map_filename, const ng::bsp::PVSOptions<T
 
 
 
-#include <string>
-#include <exception>
-#include <functional>
+
 template<class T>
 class MapCompiler
 {
 public:
 
-    using Scene = BspScene<T>;
+    using Scene = ng::io::BspScene<T>;
 
     enum class State
     {
