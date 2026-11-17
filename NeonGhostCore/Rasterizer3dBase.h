@@ -11,16 +11,10 @@ namespace ng::renderer::rasterizer
     // ================================================================
     // Depth compare function pointer
     // Signatur: bool(T newZ, T storedZ)
-    //   -> true  = Test besteht, Pixel wird geschrieben
-    //   -> false = Test schlägt fehl, Pixel wird verworfen
     // ================================================================
     template<class T>
     using DepthFuncPtr = bool(*)(T newZ, T storedZ);
 
-    // ----------------------------------------------------------------
-    // Vordefinierte Standardfunktionen (als freie Funktionen, damit
-    // sie sich zu Funktionszeigern decayen lassen)
-    // ----------------------------------------------------------------
     template<class T> inline bool DepthFunc_Never(T, T) { return false; }
     template<class T> inline bool DepthFunc_Less(T newZ, T storedZ) { return newZ < storedZ; }
     template<class T> inline bool DepthFunc_Equal(T newZ, T storedZ) { return newZ == storedZ; }
@@ -48,77 +42,45 @@ namespace ng::renderer::rasterizer
     {
         switch (func)
         {
-        case DEPTHFUNC_NEVER:
-            return DepthFunc_Never<T>;
-
-        case DEPTHFUNC_LESS:
-            return DepthFunc_Less<T>;
-
-        case DEPTHFUNC_EQUAL:
-            return DepthFunc_Equal<T>;
-
-        case DEPTHFUNC_LESSEQUAL:
-            return DepthFunc_LEqual<T>;
-
-        case DEPTHFUNC_GREATER:
-            return DepthFunc_Greater<T>;
-
-        case DEPTHFUNC_NOTEQUAL:
-            return DepthFunc_NotEqual<T>;
-
-        case DEPTHFUNC_GREATEREQUAL:
-            return DepthFunc_GEqual<T>;
-
-        case DEPTHFUNC_ALWWAYS:
-            return DepthFunc_Always<T>;
+        case DEPTHFUNC_NEVER:        return DepthFunc_Never<T>;
+        case DEPTHFUNC_LESS:         return DepthFunc_Less<T>;
+        case DEPTHFUNC_EQUAL:        return DepthFunc_Equal<T>;
+        case DEPTHFUNC_LESSEQUAL:    return DepthFunc_LEqual<T>;
+        case DEPTHFUNC_GREATER:      return DepthFunc_Greater<T>;
+        case DEPTHFUNC_NOTEQUAL:     return DepthFunc_NotEqual<T>;
+        case DEPTHFUNC_GREATEREQUAL: return DepthFunc_GEqual<T>;
+        case DEPTHFUNC_ALWWAYS:      return DepthFunc_Always<T>;
         }
 
         return DepthFunc_Less<T>;
     }
-
-
 }
-
 
 
 // ---------------------------------------------------------------------
 // Erwartete Umgebung (bei dir bereits vorhanden):
 //   - math::matrix<N,1,T> mit .x()/.y()/.z()/.w() Zugriff
 //   - primitive::SVertex<T>  (screen-space Vertex nach Project())
-//   - RGBA(r,g,b,a) -> uint32_t   (wie in PixelBufferRGBA benutzt)
-//   - ZBuffer / IndexBuffer / NormalBuffer: gleiche Grundstruktur wie
-//     PixelBufferRGBA (Resize/Clear/GetRawBuffer/PutPixel/GetPixel),
-//     nur mit float bzw. uint32_t als Elementtyp.
-//
-// Alle rechnenden Typen (Fragment, DrawState, Gradients, Edge, die
-// ColorFn/WriteFn-Signaturen) sind auf T templatisiert - float oder
-// double, je nachdem was deine SVertex<T>-Instanz nutzt.
-// RenderTarget bleibt bewusst NICHT templatisiert: das sind reine
-// Speicherformate (uint32_t Farbe, float Tiefe), unabhaengig von der
-// Rechenpraezision.
+//   - RGBA(r,g,b,a) -> uint32_t
+//   - RGBToRed/Green/Blue/Alpha
 // ---------------------------------------------------------------------
 
 namespace ng::renderer::rasterizer
 {
     // -------------------------------------------------------------
     // RenderTarget: buendelt alle Ausgabebuffer, die der Rasterizer
-    // beschreibt. Bewusst als reiner Pointer-Container gehalten -
-    // exakt dasselbe Muster wie der postfx::GBuffer, den wir schon
-    // fuer das PostFX-System gebaut haben. Wenn du magst, kannst du
-    // spaeter beide zusammenlegen (der Rasterizer fuellt denselben
-    // GBuffer, den PostFX danach weiterverarbeitet).
+    // beschreibt.
     // -------------------------------------------------------------
     template<class T>
     struct RenderTarget
     {
         uint32_t* color = nullptr; // ARGB8888
-        T*        depth = nullptr; // 1/w, groesser = naeher an der Kamera
+        T* depth = nullptr; // 1/w, groesser = naeher an der Kamera
         uint32_t* normal = nullptr; // gepackte Normale (siehe PackNormal)
         uint32_t* index = nullptr; // Objekt-/Primitiv-ID pro Pixel
 
         int width = 0;
         int height = 0;
-
 
         inline size_t Offset(int x, int y) const { return (size_t)y * width + x; }
     };
@@ -135,7 +97,7 @@ namespace ng::renderer::rasterizer
         return (0xffu << 24) | (enc(x) << 16) | (enc(y) << 8) | enc(z);
     }
 
-    // 256-Eintraege-LUT, einmal anlegen (static oder Member)
+    // 256-Eintraege-LUT, einmal anlegen
     inline const float* NormalLut()
     {
         static float lut[256];
@@ -161,20 +123,30 @@ namespace ng::renderer::rasterizer
 
     // -------------------------------------------------------------
     // Textur-View: keine eigene Ressourcenverwaltung, nur ein
-    // schreibgeschuetzter Blick auf existierende Pixeldaten
-    // (z.B. aus deinem _Image / PixelBufferRGBA::GetRawBuffer()).
+    // Blick auf existierende Pixeldaten.
     // -------------------------------------------------------------
     struct TextureView
     {
-        ng::renderer::gfx::Texture texture;
-        
-        // Resource-Handle - billig zu kopieren/halten
+        ng::renderer::gfx::Texture texture;   // Resource-Handle - billig zu kopieren/halten
 
+        // ---------------------------------------------------------
+        // Packed-Lerp: interpoliert alle 4 Kanaele gleichzeitig.
+        // t = 0..256 (0 -> c0, 256 -> c1)
+        // ---------------------------------------------------------
+        static inline uint32_t Lerp8(uint32_t c0, uint32_t c1, uint32_t t)
+        {
+            const uint32_t it = 256u - t;
+            const uint32_t rb = (((c0 & 0x00ff00ffu) * it + (c1 & 0x00ff00ffu) * t) >> 8) & 0x00ff00ffu;
+            const uint32_t ag = (((c0 >> 8) & 0x00ff00ffu) * it + ((c1 >> 8) & 0x00ff00ffu) * t) & 0xff00ff00u;
+            return rb | ag;
+        }
+
+        // ---------------------------------------------------------
+        // Nearest
+        // ---------------------------------------------------------
         template<class T>
         inline uint32_t SampleNearestLevel(T u, T v, int level) const
         {
-            
-            
             if (!texture) return 0xffff00ffu; // Magenta = fehlende Textur
             const auto& mip = texture->GetMipLevel(level);
             int w = mip.Width(), h = mip.Height();
@@ -184,44 +156,61 @@ namespace ng::renderer::rasterizer
             if (x < 0) x += w;
             if (y < 0) y += h;
             return mip.GetRawBuffer()[(size_t)y * w + x];
-            
         }
 
+        // ---------------------------------------------------------
+        // Bilinear auf einem Mip-Level.
+        // clampEdge = false -> Repeat (Diffuse)
+        // clampEdge = true  -> Clamp  (Lightmaps, kein Bluten ueber den Rand)
+        // ---------------------------------------------------------
         template<class T>
-        inline uint32_t SampleLightmapBilinear( T u, T v) const
+        inline uint32_t SampleBilinearLevel(T u, T v, int level, bool clampEdge = false) const
         {
-            const int w = texture->Width(), h = texture->Height();
-            const float x = float(u) * w - 0.5f;
-            const float y = float(v) * h - 0.5f;
+            if (!texture) return 0xffff00ffu;
+            const auto& mip = texture->GetMipLevel(level);
+            const int w = mip.Width(), h = mip.Height();
+            if (w <= 0 || h <= 0) return 0xffff00ffu;
+            const uint32_t* px = mip.GetRawBuffer();
 
-            const int x0 = std::clamp((int)std::floor(x), 0, w - 1);
-            const int y0 = std::clamp((int)std::floor(y), 0, h - 1);
-            const int x1 = std::min(x0 + 1, w - 1);
-            const int y1 = std::min(y0 + 1, h - 1);
-            const float fx = std::clamp(x - std::floor(x), 0.0f, 1.0f);
-            const float fy = std::clamp(y - std::floor(y), 0.0f, 1.0f);
+            const float fx = float(u) * w - 0.5f;
+            const float fy = float(v) * h - 0.5f;
+            const float flx = std::floor(fx), fly = std::floor(fy);
+            const uint32_t ax = (uint32_t)std::clamp((fx - flx) * 256.0f, 0.0f, 256.0f);
+            const uint32_t ay = (uint32_t)std::clamp((fy - fly) * 256.0f, 0.0f, 256.0f);
 
-            const uint32_t p00 = texture->GetPixel(x0, y0), p10 = texture->GetPixel(x1, y0);
-            const uint32_t p01 = texture->GetPixel(x0, y1), p11 = texture->GetPixel(x1, y1);
+            int x0, x1, y0, y1;
+            if (clampEdge)
+            {
+                x0 = std::clamp((int)flx, 0, w - 1);
+                x1 = std::clamp((int)flx + 1, 0, w - 1);
+                y0 = std::clamp((int)fly, 0, h - 1);
+                y1 = std::clamp((int)fly + 1, 0, h - 1);
+            }
+            else
+            {
+                auto wrap = [](int i, int n) { i %= n; return i < 0 ? i + n : i; };
+                x0 = wrap((int)flx, w);     x1 = wrap((int)flx + 1, w);
+                y0 = wrap((int)fly, h);     y1 = wrap((int)fly + 1, h);
+            }
 
-            auto ch = [&](int shift) -> uint32_t {
-                const float a = ((p00 >> shift) & 0xff) * (1 - fx) + ((p10 >> shift) & 0xff) * fx;
-                const float b = ((p01 >> shift) & 0xff) * (1 - fx) + ((p11 >> shift) & 0xff) * fx;
-                return (uint32_t)(a * (1 - fy) + b * fy + 0.5f);
-                };
-            return (ch(24) << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0);
+            const uint32_t top = Lerp8(px[(size_t)y0 * w + x0], px[(size_t)y0 * w + x1], ax);
+            const uint32_t bot = Lerp8(px[(size_t)y1 * w + x0], px[(size_t)y1 * w + x1], ax);
+            return Lerp8(top, bot, ay);
         }
-       
 
-        // Mip-Level aus den Bildschirmraum-Ableitungen von u/v waehlen.
-        // rho = Texel-pro-Pixel-Verhaeltnis, bezogen auf die Originalgroesse
-        // (Level 0) - die Mip-Kette selbst halbiert sich pro Stufe, das
-        // muss hier nicht nochmal nachgerechnet werden.
-        
+        // Alte Variante (GetPixel-basiert) - bleibt der Vollstaendigkeit halber
+        template<class T>
+        inline uint32_t SampleLightmapBilinear(T u, T v) const
+        {
+            return SampleBilinearLevel(u, v, 0, true);
+        }
+
+        // ---------------------------------------------------------
+        // Mip-Level aus Bildschirmraum-Ableitungen (diskret)
+        // ---------------------------------------------------------
         template<class T>
         inline int SelectMipLevel(T dudx, T dvdx, T dudy, T dvdy) const
         {
-            
             if (!texture) return 0;
             int w = texture->Width(), h = texture->Height();
             T ddx = dudx * (T)w, ddy = dvdx * (T)h;
@@ -229,15 +218,39 @@ namespace ng::renderer::rasterizer
             T rho = std::sqrt(std::max(ddx * ddx + ddy * ddy, edx * edx + edy * edy));
             if (rho <= (T)1) return 0;
             int level = (int)std::log2((double)rho);
-            return std::clamp(level, 0, (int)texture->GetMipLevels());
-            
+            // FIX: hoechster gueltiger Index ist Anzahl-1
+            return std::clamp(level, 0, (int)texture->GetMipLevels() - 1);
+        }
 
+        // ---------------------------------------------------------
+        // Kontinuierlicher LOD (fuer Trilinear)
+        // ---------------------------------------------------------
+        template<class T>
+        inline T SelectLod(T dudx, T dvdx, T dudy, T dvdy, T bias = T(0)) const
+        {
+            if (!texture) return 0;
+            const int w = texture->Width(), h = texture->Height();
+            T ddx = dudx * (T)w, ddy = dvdx * (T)h;
+            T edx = dudy * (T)w, edy = dvdy * (T)h;
+            T rho2 = std::max(ddx * ddx + ddy * ddy, edx * edx + edy * edy);
+            if (rho2 <= (T)1e-12) return std::clamp(bias, (T)0, (T)(texture->GetMipLevels() - 1));
+            T lod = (T)0.5 * (T)std::log2((double)rho2) + bias;   // log2(sqrt(x)) = 0.5*log2(x)
+            return std::clamp(lod, (T)0, (T)(texture->GetMipLevels() - 1));
+        }
+
+        template<class T>
+        inline uint32_t SampleTrilinear(T u, T v, T lod) const
+        {
+            const int maxL = (int)texture->GetMipLevels() - 1;
+            const int l0 = std::min((int)lod, maxL);
+            const int l1 = std::min(l0 + 1, maxL);
+            const uint32_t t = (uint32_t)((lod - (T)l0) * (T)256);
+            const uint32_t a = SampleBilinearLevel(u, v, l0);
+            if (l0 == l1 || t == 0) return a;
+            return Lerp8(a, SampleBilinearLevel(u, v, l1), t);
         }
     };
 
-    
-    
-    
 
     template<class T>
     struct Fragment
@@ -257,10 +270,9 @@ namespace ng::renderer::rasterizer
 
         T nx, ny, nz;
     };
+
     // -------------------------------------------------------------
-    // DrawState: alles, was fuer einen kompletten Draw-Call konstant
-    // ist (Material/Flags). ColorFn/WriteFn werden einmal pro Call
-    // ausgewaehlt, nicht pro Pixel.
+    // DrawState: alles, was fuer einen kompletten Draw-Call konstant ist.
     // -------------------------------------------------------------
     enum RasterFlags : uint32_t
     {
@@ -273,9 +285,14 @@ namespace ng::renderer::rasterizer
         RASTER_DEPTH_WRITE = 1u << 5,
         RASTER_WRITE_NORMAL = 1u << 6,
         RASTER_WRITE_INDEX = 1u << 7,
-         RASTER_DEPTH_CLEAR =  1u << 8,
+        RASTER_DEPTH_CLEAR = 1u << 8,
         RASTER_WARP = 1u << 9,
-        RASTER_WARP_SCREEN = 1u << 10
+        RASTER_WARP_SCREEN = 1u << 10,
+
+        // NEU: Texturfilterung
+        RASTER_FILTER_BILINEAR = 1u << 11,   // bilinear innerhalb eines Mip-Levels
+        RASTER_FILTER_TRILINEAR = 1u << 12,  // bilinear + Blend zwischen Mip-Levels
+        RASTER_LIGHTMAP_BILINEAR = 1u << 13  // Lightmap bilinear filtern
     };
 
     struct LightmapCorrection
@@ -304,31 +321,21 @@ namespace ng::renderer::rasterizer
     template<class T>
     struct DrawState
     {
-
-        // ... bestehende Felder (z.B. Blend, Texture, etc.) ...
-
         // ------------------------------------------------------------
         // Depth
         // ------------------------------------------------------------
         bool      depthTestEnabled = true;
         bool      depthWriteEnabled = true;
 
-        // ------------------------------------------------------------
-        // Clipping (Frustum-Ebenen einzeln togglebar)
-        // ------------------------------------------------------------
-          
         uint32_t flags = RASTER_DEPTH_TEST | RASTER_DEPTH_WRITE;
         uint32_t detph = DEPTHFUNC_LESS;
         uint32_t flatColor = 0xffffffffu; // genutzt wenn weder VERTEXCOLOR noch TEXTURE
         uint32_t objectIndex = 0;
         T materialAlpha = (T)1;            // zusaetzlich zur Vertex-/Textur-Alpha
-        
 
         const TextureView* diffuseTex = nullptr;
         const TextureView* lightmapTex = nullptr;
 
-        // ColorFn/WriteFn werden von SelectDrawFunctions() befuellt -
-        // koennen aber auch manuell ueberschrieben werden (eigene Shader).
         uint32_t(*colorFn)(const Fragment<T>&, const DrawState<T>&) = nullptr;
         void     (*writeFn)(RenderTarget<T>&, size_t offset, uint32_t color, const DrawState<T>&) = nullptr;
         DepthFuncPtr<T> depthFn = nullptr;
@@ -340,9 +347,12 @@ namespace ng::renderer::rasterizer
         T dV_dx = 0;
         T dV_dy = 0;
 
-        T warpAmp = T(0.03);   // Amplitude in UV-Einheiten (Quake: ca. 1/8 der Textur)
-        T warpFreq = T(8.0);    // Wellen pro UV-Einheit (Radiant)
-        T warpTime = T(0);      // Sekunden
+        // NEU: LOD-Bias fuer Trilinear. -0.5 = schaerfer, +0.5 = weicher
+        T lodBias = T(0);
+
+        T warpAmp = T(0.03);   // Amplitude in UV-Einheiten
+        T warpFreq = T(8.0);   // Wellen pro UV-Einheit
+        T warpTime = T(0);     // Sekunden
 
         T warpScreenFreq = T(0.06);
     };
@@ -359,24 +369,29 @@ namespace ng::renderer::rasterizer
     template<class T>
     inline uint32_t ColorVertex(const Fragment<T>& f, const DrawState<T>&)
     {
-        
         uint8_t r = (uint8_t)std::clamp(f.r * (T)255, (T)0, (T)255);
         uint8_t g = (uint8_t)std::clamp(f.g * (T)255, (T)0, (T)255);
         uint8_t b = (uint8_t)std::clamp(f.b * (T)255, (T)0, (T)255);
-        uint8_t a = (uint8_t)std::clamp(f.a * (T)255, (T)0, (T)255);
-       
-        return  RGBA(r, g, b, 255);//(uint32_t(a) << 24) | (uint32_t(r) << 16) | (uint32_t(g) << 8) | uint32_t(b);
+
+        return RGBA(r, g, b, 255);
     }
-  
+
+    // Perspektivisch korrekte Ableitung von u = U / invW (Quotientenregel):
+    //   du/dx = (dU * invW - U * dInvW) / invW^2
+    // Parameter:
+    //   value  = roher, linear interpolierter Wert U (= u/w)
+    //   w      = 1 / invW  (Pixel-Loop hat das schon)
+    //   dValue = dU/dx bzw. dU/dy
+    //   dInvW  = dInvW/dx bzw. dInvW/dy
     template<class T>
-    inline T PerspectiveDerivative(T value, T invW, T dValue, T dInvW)
+    inline T PerspectiveDerivative(T value, T w, T dValue, T dInvW)
     {
-        T invW2 = invW * invW;
-        T result = (dValue * invW - value * dInvW) * invW2;
+        const T invW = (T)1 / w;
+        T result = (dValue * invW - value * dInvW) * (w * w);   // FIX: * w^2 statt * invW^2
         return std::isfinite((double)result) ? result : T(0);
     }
-    
-  
+
+
     template<class T>
     inline T WarpSin(T x)
     {
@@ -391,19 +406,17 @@ namespace ng::renderer::rasterizer
         const int i = (int)std::floor((double)x * (1024.0 / 6.28318530718));
         return (T)table[i & 1023];
     }
-   
+
 
     template<class T>
-        inline uint32_t ColorTexture(const Fragment<T>& f, const DrawState<T>& st)
+    inline uint32_t ColorTexture(const Fragment<T>& f, const DrawState<T>& st)
     {
         if (!st.diffuseTex)
             return 0xffff00ffu;
 
-        
         T u = f.u, v = f.v;
         if (st.flags & RASTER_WARP)
         {
-            
             const T t = st.warpTime * T(2);
             const T ou = u, ov = v;
             u = ou + st.warpAmp * WarpSin<T>(ov * st.warpFreq + t);
@@ -418,20 +431,30 @@ namespace ng::renderer::rasterizer
             v = ov + st.warpAmp * WarpSin<T>((T)f.x * st.warpScreenFreq + t * T(1.15));
         }
 
-        int mip = st.diffuseTex->SelectMipLevel(f.dudx, f.dvdx, f.dudy, f.dvdy);
-//        uint32_t tex = st.diffuseTex->SampleNearestLevel(f.u, f.v, mip);
-        uint32_t tex = st.diffuseTex->SampleNearestLevel(u, v, mip);
+        // NEU: Filterwahl
+        uint32_t tex;
+        if (st.flags & RASTER_FILTER_TRILINEAR)
+        {
+            const T lod = st.diffuseTex->SelectLod(f.dudx, f.dvdx, f.dudy, f.dvdy, st.lodBias);
+            tex = st.diffuseTex->SampleTrilinear(u, v, lod);
+        }
+        else if (st.flags & RASTER_FILTER_BILINEAR)
+        {
+            const int mip = st.diffuseTex->SelectMipLevel(f.dudx, f.dvdx, f.dudy, f.dvdy);
+            tex = st.diffuseTex->SampleBilinearLevel(u, v, mip);
+        }
+        else
+        {
+            const int mip = st.diffuseTex->SelectMipLevel(f.dudx, f.dvdx, f.dudy, f.dvdy);
+            tex = st.diffuseTex->SampleNearestLevel(u, v, mip);
+        }
 
         uint32_t tr = RGBToRed(tex);
         uint32_t tg = RGBToGreen(tex);
         uint32_t tb = RGBToBlue(tex);
         uint32_t ta = RGBToAlpha(tex);
 
-        // NEU: nur modulieren, wenn explizit gewuenscht. Ohne
-        // RASTER_VERTEXCOLOR soll die reine Texturfarbe durchkommen -
-        // vorher wurde IMMER mit f.r/f.g/f.b multipliziert, unabhaengig
-        // vom Flag, was zu einem Farbstich durch die (fuer Debug-Zwecke
-        // gesetzte) normalenbasierte Vertexfarbe fuehrte.
+        // Nur modulieren, wenn explizit gewuenscht.
         if (st.flags & RASTER_VERTEXCOLOR)
         {
             uint32_t r = (uint32_t)(((T)tr / (T)255) * f.r * (T)255);
@@ -442,62 +465,58 @@ namespace ng::renderer::rasterizer
 
         return RGBA(tr, tg, tb, ta);
     }
-   
-      
 
-        template<class T>
-        inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
+
+    template<class T>
+    inline uint32_t ColorTextureLightmap(const Fragment<T>& f, const DrawState<T>& st)
+    {
+        uint32_t base = ColorTexture(f, st);
+        if (!st.lightmapTex || !st.lightmapTex->texture) return base;
+
+        // NEU: Lightmap bilinear (Clamp), sonst Nearest
+        uint32_t lm;
+        if (st.flags & RASTER_LIGHTMAP_BILINEAR)
+            lm = st.lightmapTex->SampleBilinearLevel(f.fxu, f.fxv, 0, true);
+        else
+            lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
+
+        uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
+        uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
+
+        uint32_t r, g, b;
+        if (st.lmCorrection)
         {
-            uint32_t base = ColorTexture(f, st);
-            if (!st.lightmapTex) return base;
+            const auto& c = *st.lmCorrection;
+            lr = c.lut[lr]; lg = c.lut[lg]; lb = c.lut[lb];
 
-            //uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
-
-            if (!st.lightmapTex || !st.lightmapTex->texture) return base;
-            uint32_t lm = st.lightmapTex->SampleNearestLevel(f.fxu, f.fxv, 0);
-            //uint32_t lm = st.lightmapTex->SampleLightmapBilinear(f.fxu, f.fxv);
-
-            uint32_t lr = (lm >> 16) & 0xff, lg = (lm >> 8) & 0xff, lb = lm & 0xff;
-            uint32_t br = (base >> 16) & 0xff, bg = (base >> 8) & 0xff, bb = base & 0xff, ba = (base >> 24) & 0xff;
-
-            uint32_t r, g, b;
-            if (st.lmCorrection)
-            {
-                const auto& c = *st.lmCorrection;
-                lr = c.lut[lr]; lg = c.lut[lg]; lb = c.lut[lb];
-
-                r = std::min(255u, (br * lr * c.scale) >> 16);
-                g = std::min(255u, (bg * lg * c.scale) >> 16);
-                b = std::min(255u, (bb * lb * c.scale) >> 16);
-            }
-            else
-            {
-                r = (br * lr) / 255u;
-                g = (bg * lg) / 255u;
-                b = (bb * lb) / 255u;
-            }
-            return (ba << 24) | (r << 16) | (g << 8) | b;
+            r = std::min(255u, (br * lr * c.scale) >> 16);
+            g = std::min(255u, (bg * lg * c.scale) >> 16);
+            b = std::min(255u, (bb * lb * c.scale) >> 16);
         }
+        else
+        {
+            r = (br * lr) / 255u;
+            g = (bg * lg) / 255u;
+            b = (bb * lb) / 255u;
+        }
+        return (ba << 24) | (r << 16) | (g << 8) | b;
+    }
 
     template<class T>
     inline void SelectColorFn_Impl(uint32_t flags, uint32_t(**out)(const Fragment<T>&, const DrawState<T>&))
     {
         if (flags & RASTER_TEXTURE)
         {
-            
             *out = (flags & RASTER_LIGHTMAP) ? ColorTextureLightmap<T> : ColorTexture<T>;
         }
         else if (flags & RASTER_VERTEXCOLOR)
         {
-            
             *out = ColorVertex<T>;
         }
         else
         {
-            
             *out = ColorFlat<T>;
         }
-    
     }
 
     // ===============================================================
@@ -536,9 +555,6 @@ namespace ng::renderer::rasterizer
     template<class T>
     inline void SelectDrawFunctions(ng::renderer::rasterizer::DrawState<T>& st)
     {
-        
- 
-        
         st.depthFn = SelectDepthFn_Impl<T>(st.detph);
         SelectColorFn_Impl<T>(st.flags, &st.colorFn);
         SelectWriteFn_Impl<T>(st.flags, &st.writeFn);
@@ -551,21 +567,18 @@ namespace ng::renderer::rasterizer
     template<class T>
     inline void ShadePixel(RenderTarget<T>& target, const DrawState<T>& st, const Fragment<T>& f)
     {
-        
         if ((unsigned)f.x >= (unsigned)target.width || (unsigned)f.y >= (unsigned)target.height) return;
         size_t offset = target.Offset(f.x, f.y);
 
-        
         if (st.flags & RASTER_DEPTH_TEST)
         {
             if (st.depthFn(f.invW, target.depth[offset])) return;
-            //  if ((float)f.invW <= target.depth[offset]) return; // schon etwas Naeheres da
         }
 
-        // NEU: Portal-Bereich freigeben - kein Farbwert, nur Tiefe zuruecksetzen
+        // Portal-Bereich freigeben - kein Farbwert, nur Tiefe zuruecksetzen
         if (st.flags & RASTER_DEPTH_CLEAR)
         {
-            target.depth[offset] = 0.0f;    // "fern" = Clear-Wert deines Tiefenpuffers
+            target.depth[offset] = 0.0f;
             return;
         }
 
@@ -590,15 +603,10 @@ namespace ng::renderer::rasterizer
     // ===============================================================
     // Line3D
     // ===============================================================
-    // Einfache DDA-Linie im Screenspace, interpoliert alle Attribute
-    // linear ueber die Anzahl Schritte. Fuer Wireframe/Debug-Zwecke -
-    // nutzt dieselbe Shading-Pipeline wie die Dreiecke.
     template<class T, class SVertexT>
     inline void DrawLine3D(RenderTarget<T>& target, DrawState<T>& st, const SVertexT& v0, const SVertexT& v1)
     {
         SelectDrawFunctions(st);
-        
-       
 
         T dx = v1.x() - v0.x();
         T dy = v1.y() - v0.y();
@@ -607,10 +615,9 @@ namespace ng::renderer::rasterizer
         {
             Fragment<T> f{ (int)v0.x(), (int)v0.y(), v0.w(),
                 v0.u(), v0.v(), v0.fxu(), v0.fxv(),
+                0, 0, 0, 0,
                 v0.color().x(), v0.color().y(), v0.color().z(), v0.alpha(),
                 v0.normal().x(), v0.normal().y(), v0.normal().z() };
-
-
 
             ShadePixel(target, st, f);
             return;
@@ -633,7 +640,6 @@ namespace ng::renderer::rasterizer
             f.fxv = v0.fxv();
 
             // Bei einer Linie verwenden wir kein Mipmapping.
-            // Daher Derivate auf 0 setzen.
             f.dudx = 0;
             f.dvdx = 0;
             f.dudy = 0;
@@ -647,9 +653,6 @@ namespace ng::renderer::rasterizer
             f.nx = v0.normal().x();
             f.ny = v0.normal().y();
             f.nz = v0.normal().z();
-            
-            
-
 
             ShadePixel(target, st, f);
         }
@@ -658,10 +661,6 @@ namespace ng::renderer::rasterizer
     // ===============================================================
     // Fast Triangle (Gradienten-Rasterizer)
     // ===============================================================
-    // Alle dA/dx, dA/dy einmal pro Dreieck berechnen (klassische
-    // Technik nach Chris Hecker / Fabian Giesen). Danach kostet jedes
-    // Pixel nur noch Additionen - keine Multiplikation, keine Division
-    // (bis auf die eine, unvermeidbare fuer perspektivisch-korrektes UV).
     template<class T>
     struct Gradients
     {
@@ -700,7 +699,7 @@ namespace ng::renderer::rasterizer
         }
     };
 
-    
+
     template<class T>
     struct Edge
     {
@@ -737,90 +736,24 @@ namespace ng::renderer::rasterizer
             T xPreStep = x - top.x();
 
             auto init =
-                [&](T topVal,
-                    T dx,
-                    T dy,
-                    T& val,
-                    T& step)
+                [&](T topVal, T dx, T dy, T& val, T& step)
                 {
-                    val = topVal
-                        + xPreStep * dx
-                        + yPreStep * dy;
-
+                    val = topVal + xPreStep * dx + yPreStep * dy;
                     step = xStep * dx + dy;
                 };
 
-            init(top.w(),
-                grad.dInvW_dx,
-                grad.dInvW_dy,
-                invW,
-                invW_step);
-
-            init(top.u(),
-                grad.dU_dx,
-                grad.dU_dy,
-                u,
-                u_step);
-
-            init(top.v(),
-                grad.dV_dx,
-                grad.dV_dy,
-                v,
-                v_step);
-
-            init(top.fxu(),
-                grad.dFxu_dx,
-                grad.dFxu_dy,
-                fxu,
-                fxu_step);
-
-            init(top.fxv(),
-                grad.dFxv_dx,
-                grad.dFxv_dy,
-                fxv,
-                fxv_step);
-
-            init(top.color().x(),
-                grad.dR_dx,
-                grad.dR_dy,
-                r,
-                r_step);
-
-            init(top.color().y(),
-                grad.dG_dx,
-                grad.dG_dy,
-                g,
-                g_step);
-
-            init(top.color().z(),
-                grad.dB_dx,
-                grad.dB_dy,
-                b,
-                b_step);
-
-            init(top.alpha(),
-                grad.dA_dx,
-                grad.dA_dy,
-                a,
-                a_step);
-
-            init(top.normal().x(),
-                grad.dNx_dx,
-                grad.dNx_dy,
-                nx,
-                nx_step);
-
-            init(top.normal().y(),
-                grad.dNy_dx,
-                grad.dNy_dy,
-                ny,
-                ny_step);
-
-            init(top.normal().z(),
-                grad.dNz_dx,
-                grad.dNz_dy,
-                nz,
-                nz_step);
+            init(top.w(), grad.dInvW_dx, grad.dInvW_dy, invW, invW_step);
+            init(top.u(), grad.dU_dx, grad.dU_dy, u, u_step);
+            init(top.v(), grad.dV_dx, grad.dV_dy, v, v_step);
+            init(top.fxu(), grad.dFxu_dx, grad.dFxu_dy, fxu, fxu_step);
+            init(top.fxv(), grad.dFxv_dx, grad.dFxv_dy, fxv, fxv_step);
+            init(top.color().x(), grad.dR_dx, grad.dR_dy, r, r_step);
+            init(top.color().y(), grad.dG_dx, grad.dG_dy, g, g_step);
+            init(top.color().z(), grad.dB_dx, grad.dB_dy, b, b_step);
+            init(top.alpha(), grad.dA_dx, grad.dA_dy, a, a_step);
+            init(top.normal().x(), grad.dNx_dx, grad.dNx_dy, nx, nx_step);
+            init(top.normal().y(), grad.dNy_dx, grad.dNy_dy, ny, ny_step);
+            init(top.normal().z(), grad.dNz_dx, grad.dNz_dy, nz, nz_step);
         }
 
         inline void Step()
@@ -870,28 +803,31 @@ namespace ng::renderer::rasterizer
         f.ny = left.ny + xPreStep * grad.dNy_dx;
         f.nz = left.nz + xPreStep * grad.dNz_dx;
 
-        // NEU: perspektivisch korrekte Bildschirmraum-Ableitungen von u/v,
-    // fuer die Mip-Level-Auswahl in ColorTexture(). f.u/f.v/f.invW sind
-    // hier noch die ROHEN (nicht durch invW geteilten) Werte an diesem
-    // Pixel - genau das braucht PerspectiveDerivative als Eingabe.
-        
-        f.dudx = PerspectiveDerivative(f.u, f.invW, grad.dU_dx, grad.dInvW_dx);
-        f.dvdx = PerspectiveDerivative(f.v, f.invW, grad.dV_dx, grad.dInvW_dx);
-        f.dudy = PerspectiveDerivative(f.u, f.invW, grad.dU_dy, grad.dInvW_dy);
-        f.dvdy = PerspectiveDerivative(f.v, f.invW, grad.dV_dy, grad.dInvW_dy);
+        f.dudx = f.dvdx = f.dudy = f.dvdy = 0;
+
+        const bool needDerivs = (st.flags & RASTER_TEXTURE) != 0;
 
         for (int x = xStart; x < xEnd; x++)
         {
             f.x = x;
 
-            // Perspektivisch korrektes UV: die eine Division pro Pixel,
-            // die sich nicht wegoptimieren laesst.
-            T w = (T)1 / f.invW;
+            // Perspektivisch korrektes UV: die eine Division pro Pixel.
+            const T w = (T)1 / f.invW;
             Fragment<T> shaded = f;
             shaded.u = f.u * w;
             shaded.v = f.v * w;
             shaded.fxu = f.fxu * w;
             shaded.fxv = f.fxv * w;
+
+            // FIX: Ableitungen pro Pixel (aendern sich entlang der Zeile),
+            // mit korrigierter Quotientenregel.
+            if (needDerivs)
+            {
+                shaded.dudx = PerspectiveDerivative(f.u, w, grad.dU_dx, grad.dInvW_dx);
+                shaded.dvdx = PerspectiveDerivative(f.v, w, grad.dV_dx, grad.dInvW_dx);
+                shaded.dudy = PerspectiveDerivative(f.u, w, grad.dU_dy, grad.dInvW_dy);
+                shaded.dvdy = PerspectiveDerivative(f.v, w, grad.dV_dy, grad.dInvW_dy);
+            }
 
             ShadePixel(target, st, shaded);
 
@@ -903,16 +839,12 @@ namespace ng::renderer::rasterizer
         }
     }
 
-    // Haupteinstieg: Dreieck aus bereits projizierten SVertex (nach
-    // Project()) rastern. Sortiert nach Y, teilt in Ober-/Unterhaelfte,
-    // laeuft scanline-weise ueber DrawSpan().
+    // Haupteinstieg: Dreieck aus bereits projizierten SVertex rastern.
     template<class T, class SVertexT>
     inline void DrawTriangleFast(RenderTarget<T>& target, DrawState<T>& st, SVertexT v0, SVertexT v1, SVertexT v2)
     {
-
         SelectDrawFunctions(st);
 
-       
         if (v0.y() > v1.y()) std::swap(v0, v1);
         if (v1.y() > v2.y()) std::swap(v1, v2);
         if (v0.y() > v1.y()) std::swap(v0, v1);
@@ -928,30 +860,27 @@ namespace ng::renderer::rasterizer
 
         if (v0.y() < v1.y())
         {
-
             Edge<T> shortEdge(v0, v1, grad);
             for (int y = shortEdge.yStart; y < shortEdge.yEnd; y++)
             {
                 if (middleIsLeft) DrawSpan(target, st, grad, y, shortEdge, longEdge);
-                else               DrawSpan(target, st, grad, y, longEdge, shortEdge);
+                else              DrawSpan(target, st, grad, y, longEdge, shortEdge);
                 shortEdge.Step();
                 longEdge.Step();
             }
         }
         if (v1.y() < v2.y())
         {
-
             Edge<T> shortEdge(v1, v2, grad);
 
             for (int y = shortEdge.yStart; y < shortEdge.yEnd; y++)
             {
                 if (middleIsLeft) DrawSpan(target, st, grad, y, shortEdge, longEdge);
-                else               DrawSpan(target, st, grad, y, longEdge, shortEdge);
+                else              DrawSpan(target, st, grad, y, longEdge, shortEdge);
                 shortEdge.Step();
                 longEdge.Step();
             }
         }
     }
 
-} // namespace ng::renderer::raster
-
+} // namespace ng::renderer::rasterizer

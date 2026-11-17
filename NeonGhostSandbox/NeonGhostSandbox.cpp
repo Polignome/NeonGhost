@@ -155,9 +155,29 @@ inline void Render() {
     m_render_pipeline_3d.SetTime(totalTime);
     m_rasterizer_3d.GetMOCBufferRef().Clear();  
     
-    m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
-    m_rasterizer_3d.State().flatColor = RGB(255, 255, 0);
-    m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE;// | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+
+    
+
+    auto& st = m_rasterizer_3d.State();
+
+    st.detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
+    st.flatColor = RGB(255, 255, 0);   // Fallback, wird mit TEXTURE nicht benutzt
+
+    st.flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST
+        | ng::renderer::rasterizer::RASTER_DEPTH_WRITE
+        | ng::renderer::rasterizer::RASTER_TEXTURE
+        | ng::renderer::rasterizer::RASTER_FILTER_TRILINEAR;   // weiche Texturen + sanfte Mip-Übergänge
+
+    st.lodBias = -0.25f;   // leicht schärfer, da Trilinear sonst etwas weich wirkt
+
+    //m_rasterizer_3d.State().detph = ng::renderer::rasterizer::DEPTHFUNC_LESS;
+    //m_rasterizer_3d.State().flatColor = RGB(255, 255, 0);
+    //m_rasterizer_3d.State().flags = ng::renderer::rasterizer::RASTER_DEPTH_TEST | ng::renderer::rasterizer::RASTER_DEPTH_WRITE | ng::renderer::rasterizer::RASTER_TEXTURE;// | ng::renderer::rasterizer::RASTER_VERTEXCOLOR;
+
+
+    //st.flags |= RASTER_FILTER_TRILINEAR | RASTER_LIGHTMAP_BILINEAR;
+    //st.lodBias = -0.25f; // optional
+
 
     ng::renderer::gfx::Image test = ng::resource::ImageResourceManager::GetResource("Image1", true);
      
