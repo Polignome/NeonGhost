@@ -30,6 +30,13 @@
 #include "console_logo.h"
 #include <BspSceneSerialize.h>
 
+#include "MaterialTypes.h"
+#include "MaterialNodeRegistry.h"
+#include "MaterialGraph.h"
+#include "MaterialCompiler.h"
+#include "MaterialEvaluator.h"
+#include "MaterialParameters.h"
+
 #pragma comment(lib, "SDL2.lib")
 #pragma comment(lib, "SDL2main.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -126,6 +133,8 @@ void LoadMapReady(bool error, ng::io::BspScene<NG_MATH_FLOAT>&& scene) {
     m_bsp_lightmap = ng::resource::TextureResourceManager::GetResource("__lightmap_atlas__");
 
 }
+
+
 
 inline void Render() {
     static double totalTime = 0.0;
@@ -337,6 +346,185 @@ DistributeObjectsInCube(
 }
 
 
+
+
+int Test() {
+    using namespace ng::material;
+	std::cout << "\n\n";
+    std::cout << "====================================\n";
+    std::cout << " NeonGhost Material System Test\n";
+    std::cout << "====================================\n\n";
+
+    // ------------------------------------------------------------
+    // 1. Node Registry
+    // ------------------------------------------------------------
+    
+    MaterialNodeRegistry registry =
+        MaterialNodeRegistry::CreateDefault();
+
+    std::cout << "[OK] Node Registry: "
+        << registry.Size() << " Nodes\n";
+
+    // ------------------------------------------------------------
+    // 2. Material Graph
+    // ------------------------------------------------------------
+
+
+    MaterialGraph graph(registry, "TestMaterial");
+
+    graph.SetName("TestMaterial");
+
+    // Constant Node
+    NodeId colorNode = graph.AddNode(
+        NodeType::Constant,
+        "Base Color");
+
+    // Material Output Node
+    NodeId outputNode = graph.AddNode(
+        NodeType::MaterialOutput,
+        "Material Output");
+
+    if (colorNode == 0 || outputNode == 0)
+    {
+        std::cerr << "[ERROR] Could not create nodes.\n";
+        return 1;
+    }
+
+    // ------------------------------------------------------------
+    // 3. Set Constant Value
+    // ------------------------------------------------------------
+
+    MaterialNode* color =
+        graph.FindNode(colorNode);
+
+    if (!color || color->outputs.empty())
+    {
+        std::cerr << "[ERROR] Invalid Constant node.\n";
+        return 1;
+    }
+
+    // Wir setzen die Farbe auf Orange.
+    color->outputs[0].defaultValue =
+        MaterialValue::Color(1.0f, 0.4f, 0.1f, 1.0f);
+
+    // ------------------------------------------------------------
+    // 4. Connect Nodes
+    // ------------------------------------------------------------
+
+    MaterialNode* output =
+        graph.FindNode(outputNode);
+
+    if (!output)
+    {
+        std::cerr << "[ERROR] Output node not found.\n";
+        return 1;
+    }
+
+    PinId sourcePin = color->outputs[0].id;
+    PinId targetPin = 0;
+
+    for (const auto& pin : output->inputs)
+    {
+        if (pin.name == "BaseColor")
+        {
+            targetPin = pin.id;
+            break;
+        }
+    }
+
+    if (targetPin == 0)
+    {
+        std::cerr << "[ERROR] BaseColor input not found.\n";
+        return 1;
+    }
+
+    std::string error;
+
+    ConnectionId connection =
+        graph.Connect(sourcePin, targetPin, &error);
+
+    if (connection == 0)
+    {
+        std::cerr << "[ERROR] Connect failed: "
+            << error << "\n";
+        return 1;
+    }
+
+    std::cout << "[OK] Nodes connected.\n";
+
+    // ------------------------------------------------------------
+    // 5. Compile Material
+    // ------------------------------------------------------------
+
+    MaterialCompiler compiler;
+    MaterialProgram program;
+
+    if (!compiler.Compile(graph, program, &error))
+    {
+        std::cerr << "[ERROR] Compilation failed: "
+            << error << "\n";
+        return 1;
+    }
+
+    std::cout << "[OK] Material compiled.\n";
+    std::cout << "     Instructions: "
+        << program.GetInstructionCount()
+        << "\n";
+
+    // ------------------------------------------------------------
+    // 6. Evaluate Material
+    // ------------------------------------------------------------
+
+    MaterialEvaluationContext context;
+    MaterialParameterSet parameters;
+
+    context.parameters = &parameters;
+
+    MaterialEvaluator evaluator;
+    MaterialSurface surface;
+
+    if (!evaluator.Evaluate(
+        program,
+        context,
+        surface,
+        &error))
+    {
+        std::cerr << "[ERROR] Evaluation failed: "
+            << error << "\n";
+        return 1;
+    }
+
+    // ------------------------------------------------------------
+    // 7. Display Result
+    // ------------------------------------------------------------
+
+    std::cout << "\nMaterial Result:\n";
+
+    std::cout << std::fixed << std::setprecision(3);
+
+    std::cout << "BaseColor:\n";
+    std::cout << "  R: " << surface.baseColor[0] << "\n";
+    std::cout << "  G: " << surface.baseColor[1] << "\n";
+    std::cout << "  B: " << surface.baseColor[2] << "\n";
+    std::cout << "  A: " << surface.baseColor[3] << "\n";
+
+    std::cout << "\nNormal:\n";
+    std::cout << "  X: " << surface.normal[0] << "\n";
+    std::cout << "  Y: " << surface.normal[1] << "\n";
+    std::cout << "  Z: " << surface.normal[2] << "\n";
+
+    std::cout << "\nOther properties:\n";
+    std::cout << "  Opacity:   " << surface.opacity << "\n";
+    std::cout << "  Roughness: " << surface.roughness << "\n";
+    std::cout << "  Metallic:  " << surface.metallic << "\n";
+
+    std::cout << "\n====================================\n";
+    std::cout << " Test completed successfully.\n";
+    std::cout << "====================================\n";
+
+        return 0;
+}
+
 void ExitProgram() {
 	//m_exit_program = true;
     done = true;
@@ -428,7 +616,7 @@ int main(int argc, char** argv) {
 
 
 
-
+    Test();
 
 
 
@@ -565,6 +753,8 @@ int main(int argc, char** argv) {
                 if (ImGui::MenuItem("Virtual Filesystem Browser", 0, &temp)) m_pick_vfs_file = true;
                 temp = m_show_quick_info;
                 if (ImGui::MenuItem("Show Quickinfo", 0, &temp)) m_show_quick_info = !m_show_quick_info;
+				temp = m_show_console;
+				if (ImGui::MenuItem("Show Console", 0, &temp)) m_show_console = !m_show_console;
 
                 ImGui::EndMenu();
             }
@@ -618,8 +808,8 @@ int main(int argc, char** argv) {
             
         }
          
-
-        m_console_gui.Draw();
+        if (m_setup_collision) SetPhysicsCollision(m_setup_collision);
+        if(m_show_console) m_console_gui.Draw();
         if (m_pick_vfs_file) VFSFilePicker(m_pick_vfs_file, "");
         if (m_exit_program) done = ng::gui::ExitPopup(m_exit_program);
         if (m_tools_font_window) ng::gui::ShowFontViewer(m_tools_font_window);

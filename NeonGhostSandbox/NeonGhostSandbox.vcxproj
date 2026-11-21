@@ -71,12 +71,22 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <ExternalIncludePath>..\extern\include;..\NeonGhostCore;$(ExternalIncludePath)</ExternalIncludePath>
+    <ExternalIncludePath>..\extern\include;..\NeonGhostCore;$(ExternalIncludePath);..\imgui-node-editor-master</ExternalIncludePath>
     <LibraryPath>..\x64\Debug;..\extern\lib\Debug;$(LibraryPath)</LibraryPath>
+    <IncludePath>..\NeonGhostSandbox;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ExternalIncludePath>..\extern\include;..\NeonGhostCore;$(ExternalIncludePath)</ExternalIncludePath>
+    <ExternalIncludePath>..\extern\include;..\NeonGhostCore;$(ExternalIncludePath);..\imgui-node-editor-master</ExternalIncludePath>
     <LibraryPath>..\extern\lib\Release;..\x64\Release;$(LibraryPath)</LibraryPath>
+    <IncludePath>..\NeonGhostSandbox;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ExternalIncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;..\imgui-node-editor-master</ExternalIncludePath>
+    <IncludePath>..\NeonGhostSandbox;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ExternalIncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);;..\imgui-node-editor-master</ExternalIncludePath>
+    <IncludePath>..\NeonGhostSandbox;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -144,6 +154,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\imgui-node-editor-master\crude_json.cpp" />
+    <ClCompile Include="..\imgui-node-editor-master\imgui_canvas.cpp" />
+    <ClCompile Include="..\imgui-node-editor-master\imgui_node_editor.cpp" />
+    <ClCompile Include="..\imgui-node-editor-master\imgui_node_editor_api.cpp" />
     <ClCompile Include="ConsoleFramebuffer.cpp" />
     <ClCompile Include="Font2.cpp" />
     <ClCompile Include="imgui.cpp" />
@@ -159,6 +173,12 @@
     <ClCompile Include="RenderTargetView.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\imgui-node-editor-master\crude_json.h" />
+    <ClInclude Include="..\imgui-node-editor-master\imgui_bezier_math.h" />
+    <ClInclude Include="..\imgui-node-editor-master\imgui_canvas.h" />
+    <ClInclude Include="..\imgui-node-editor-master\imgui_extra_math.h" />
+    <ClInclude Include="..\imgui-node-editor-master\imgui_node_editor.h" />
+    <ClInclude Include="..\imgui-node-editor-master\imgui_node_editor_internal.h" />
     <ClInclude Include="ConsoleFramebuffer.h" />
     <ClInclude Include="ConsoleImGui.h" />
     <ClInclude Include="console_logo.h" />
@@ -178,6 +198,9 @@
     <ClInclude Include="myfont.h" />
     <ClInclude Include="NGDemos.h" />
     <ClInclude Include="RenderTargetView.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\imgui-node-editor-master\imgui_extra_math.inl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

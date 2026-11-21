@@ -13,30 +13,15 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Quelldateien\ImGui">
+      <UniqueIdentifier>{e5bc17c3-1f7f-47ba-aff7-0bd93e2d0137}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Quelldateien\ImGuiNodeEditor">
+      <UniqueIdentifier>{baeb1dd5-ccb6-4cb9-89d6-c531abbcfd32}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NeonGhostSandbox.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_demo.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_draw.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_impl_dx11.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_impl_sdl2.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_tables.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
-    <ClCompile Include="imgui_widgets.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
     <ClCompile Include="ImGuiTools.cpp">
@@ -53,6 +38,39 @@
     </ClCompile>
     <ClCompile Include="ConsoleFramebuffer.cpp">
       <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_demo.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_draw.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_impl_dx11.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_impl_sdl2.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_tables.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_widgets.cpp">
+      <Filter>Quelldateien\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\imgui-node-editor-master\crude_json.cpp">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="..\imgui-node-editor-master\imgui_canvas.cpp">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="..\imgui-node-editor-master\imgui_node_editor.cpp">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="..\imgui-node-editor-master\imgui_node_editor_api.cpp">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -113,5 +131,28 @@
     <ClInclude Include="ConsoleImGui.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\crude_json.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\imgui_bezier_math.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\imgui_canvas.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\imgui_extra_math.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\imgui_node_editor.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="..\imgui-node-editor-master\imgui_node_editor_internal.h">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\imgui-node-editor-master\imgui_extra_math.inl">
+      <Filter>Quelldateien\ImGuiNodeEditor</Filter>
+    </None>
   </ItemGroup>
 </Project>

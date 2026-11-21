@@ -50,6 +50,8 @@ static bool m_use_tile_base_rendering = true;
 static bool m_use_collision = false;
 static bool m_use_lightmap = true;
 static bool m_show_quick_info = true;
+static bool m_show_console = false;
+static bool m_setup_collision = false;
 
 
 static size_t m_num_visible_leafs = 0;
@@ -1489,8 +1491,23 @@ inline void SomeDebugStuff() {
     }
 }
 
+
+inline void SetPhysicsCollision(bool& visible) {
+    if (ImGui::Begin("Set Physics", &visible)) {
+        ng::math::Matrix<3, 1, NG_MATH_FLOAT> radius = m_player.Radius();
+        ImGui::Selectable("Enable Colision", &m_use_collision);
+        ImGui::Separator();
+        ImGui::InputDouble("Radius X:", &radius.x(), 2, 8, "%.0f");
+        ImGui::InputDouble("Radius Y:", &radius.y(), 2, 8, "%.0f");
+        ImGui::InputDouble("Radius Z:", &radius.z(), 2, 8, "%.0f");
+        printf("--> [%i]   %f %f %f\n", m_player.IsInitialized(),radius.x(), radius.y(), radius.z());
+        m_player.Radius() = radius;
+    }
+	ImGui::End();   
+}
 inline void AddRenderMenuSubMenue() {
     uint32_t mode = m_render_pipeline_3d.GetCullingMode();
+    
     if (ImGui::BeginMenu("Culling")) {
         if (ImGui::BeginMenu("Face")) {
             if (ImGui::MenuItem("Front", "", mode & ng::renderer::rasterizer::CULL_FRONTFACE)) ToggleBit(mode, ng::renderer::rasterizer::CULL_FRONTFACE);
@@ -1506,11 +1523,8 @@ inline void AddRenderMenuSubMenue() {
 
     }
     if (ImGui::BeginMenu("Physics")) {
-        if (ImGui::MenuItem("Use collision", "", m_use_collision)) m_use_collision = !m_use_collision;
-        ImGui::Separator();
-        ImGui::InputDouble("Radius X:", &m_player.Radius().x(), 2, 8, "%.0f");
-        ImGui::InputDouble("Radius Y:", &m_player.Radius().y(), 2, 8, "%.0f");
-        ImGui::InputDouble("Radius Z:", &m_player.Radius().z(), 2, 8, "%.0f");
+        if (ImGui::MenuItem("Setup collision", "", m_setup_collision)) m_setup_collision = !m_setup_collision;
+
         ImGui::EndMenu();
     }
     

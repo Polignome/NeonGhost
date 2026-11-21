@@ -112,6 +112,9 @@
     <Filter Include="Headerdateien\Light">
       <UniqueIdentifier>{3520d0d2-eef5-41fb-9e3d-c8c743f7853a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Headerdateien\Material">
+      <UniqueIdentifier>{e0e77a52-4600-40ac-8661-736757fd51b7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Matrix.h">
@@ -425,6 +428,33 @@
     </ClInclude>
     <ClInclude Include="BspSceneFwd.h">
       <Filter>Headerdateien\Io</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialTypes.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialGraph.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialNodeRegistry.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialTypeSystem.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialProgram.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialCompiler.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialEvaluator.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialParameters.h">
+      <Filter>Headerdateien\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="MaterialTextureSampler.h">
+      <Filter>Headerdateien\Material</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

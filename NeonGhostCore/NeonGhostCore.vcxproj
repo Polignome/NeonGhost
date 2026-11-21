@@ -176,6 +176,15 @@
     <ClInclude Include="LightMapAtlas.h" />
     <ClInclude Include="Lightmap.h" />
     <ClInclude Include="Map.h" />
+    <ClInclude Include="MaterialCompiler.h" />
+    <ClInclude Include="MaterialEvaluator.h" />
+    <ClInclude Include="MaterialGraph.h" />
+    <ClInclude Include="MaterialNodeRegistry.h" />
+    <ClInclude Include="MaterialParameters.h" />
+    <ClInclude Include="MaterialProgram.h" />
+    <ClInclude Include="MaterialTextureSampler.h" />
+    <ClInclude Include="MaterialTypes.h" />
+    <ClInclude Include="MaterialTypeSystem.h" />
     <ClInclude Include="miniz.h" />
     <ClInclude Include="miniz_common.h" />
     <ClInclude Include="miniz_export.h" />
